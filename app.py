@@ -13,7 +13,7 @@ Endpoints:
   POST /api/search        — direct hospital search
 """
 
-import os, uuid, tempfile, asyncio
+import os, uuid, tempfile, asyncio, re
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -29,7 +29,7 @@ from functions.translate  import detect_language, translate_to_english, translat
 from functions.places     import search_facilities, get_emergency_hospitals
 from functions.pmjay      import check_pmjay_eligibility, format_for_ui
 from functions.cghs       import get_cost_estimate
-from functions.insurance          import check_coverage, get_insurer_info
+from functions.insurance  import check_coverage, get_insurer_info
 from functions.treatment_validator import validate_treatment, preload_chunks
 
 load_dotenv()
@@ -40,9 +40,9 @@ CORS(app)
 # ─────────────────────────────────────────────────────────────
 #  BayMax voice config
 # ─────────────────────────────────────────────────────────────
-BAYMAX_VOICE = "en-US-GuyNeural"
-BAYMAX_RATE  = "-20%"
-BAYMAX_PITCH = "-10Hz"
+BAYMAX_VOICE = "en-IN-NeerjaNeural"
+BAYMAX_RATE  = "+5%"
+BAYMAX_PITCH = "+0Hz"
 
 LANG_STT = {
     "English": "en-IN",
@@ -58,6 +58,16 @@ GREETING = (
     "What's bothering you today?"
 )
 PAIN_SCALE_QUESTION = "On a scale of 1 to 10, how much pain are you in?"
+
+# Hospital keywords for insurance pre-check
+_HOSP_PATTERN = re.compile(
+    r"(kokilaben|apollo|fortis|manipal|lilavati|hinduja|"
+    r"bombay hospital|breach candy|nanavati|wockhardt|"
+    r"jaslok|global|max|medanta|ruby|kem|nair|tata|"
+    r"asian heart|saifee|masina|bhatia|holy family|"
+    r"st george|king edward|sion hospital)",
+    re.IGNORECASE
+)
 
 # ─────────────────────────────────────────────────────────────
 #  TTS helper
@@ -77,8 +87,13 @@ async def _tts_async(text: str) -> bytes:
 def tts(text: str) -> bytes:
     """Synchronous wrapper for TTS. Returns MP3 bytes."""
     try:
-        return asyncio.run(_tts_async(text))
-    except Exception:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(_tts_async(text))
+        loop.close()
+        return result
+    except Exception as e:
+        print(f"TTS error: {e}")
         return b""
 
 # ─────────────────────────────────────────────────────────────
@@ -137,6 +152,35 @@ def _resolve_coords(lat, lng, city: str = None):
                 return v
     return None, None
 
+#  Insurance pre-check helper
+# ─────────────────────────────────────────────────────────────
+
+def _build_insurance_fact(message: str, insurer: str, city: str) -> str:
+    """
+    If the user message mentions a hospital name and we have an insurer,
+    look up coverage and return a fact string to inject into Claude's context.
+    Returns empty string if no hospital detected or no insurer set.
+    """
+    if not insurer:
+        return ""
+
+    match = _HOSP_PATTERN.search(message)
+    if not match:
+        return ""
+
+    hosp_keyword = match.group(0).title()
+    cov    = check_coverage(hosp_keyword, city, insurer)
+    status = "IN YOUR NETWORK ✅" if cov["in_network"] else "NOT in your network ❌"
+    note   = f" {cov['coverage_note']}" if cov.get("coverage_note") else ""
+    helpline = f" Helpline: {cov['helpline']}." if cov.get("helpline") else ""
+
+    fact = (
+        f"[VERIFIED INSURANCE DATABASE RESULT — state this as confirmed fact. "
+        f"Do NOT tell the user to call the insurer to verify — you already have the answer]: "
+        f"{hosp_keyword} is {status} for {insurer}.{note}{helpline}"
+    )
+    print(f"💊 Insurance fact: {hosp_keyword} → {status} for {insurer}")
+    return fact
 
 # ─────────────────────────────────────────────────────────────
 #  Parallel context fetch
@@ -146,8 +190,6 @@ def _get_full_context(department: str, lat, lng, phone,
                       insurer: str = None, city: str = None) -> tuple:
     """
     Returns (facilities_dict, pmjay_ui, costs).
-    facilities_dict = {"nearby": [...], "gipsa": [...]}
-    Nearby results are annotated with insurance_badge if insurer is provided.
     """
     lat, lng = _resolve_coords(lat, lng, city)
 
@@ -171,7 +213,6 @@ def _get_full_context(department: str, lat, lng, phone,
         try:    costs = f_costs.result(timeout=2)
         except: costs = None
 
-    # Annotate nearby results with private insurance badge (pure dict lookup, ~0ms)
     if insurer:
         for facility in fac_result.get("nearby", []):
             cov = check_coverage(facility.get("name",""), facility.get("city",""), insurer)
@@ -190,23 +231,24 @@ def _process_message(session_id: str, raw_message: str,
     user    = sess["user"]
     history = sess["history"]
 
+    # Resolve insurer EARLY — needed throughout the function
+    insurer = user.get("insurance_provider") or None
+
     if lang_override:
         sess["language"] = lang_override
 
-    # If somehow still in GREETING (shouldn't happen — /api/init-session handles this),
-    # silently transition and continue processing normally. No greeting prepend here —
-    # the frontend always shows the greeting directly from the hardcoded constant.
-    if sess["state"] == "GREETING":
+    is_first = (sess["state"] == "GREETING")
+    if is_first:
         sess["state"] = "CLARIFICATION"
         if not lang_override:
             sess["language"] = detect_language(raw_message)
 
     lang = sess["language"]
 
-    # Translate to English ───────────────────────────────────
+    # Translate to English
     english = translate_to_english(raw_message) if lang != "English" else raw_message
 
-    # Emergency check ────────────────────────────────────────
+    # Emergency check (highest priority, no LLM call)
     if is_emergency(english):
         voice = get_emergency_response("en")
         if lang != "English":
@@ -221,7 +263,7 @@ def _process_message(session_id: str, raw_message: str,
                      emergency_panel=get_emergency_panel(),
                      facilities=nearest)
 
-    # Pain scale auto-ask ────────────────────────────────────
+    # Pain scale auto-ask
     if needs_pain_scale(english) and not sess["pain_scale_asked"]:
         q = PAIN_SCALE_QUESTION
         if lang != "English":
@@ -231,7 +273,7 @@ def _process_message(session_id: str, raw_message: str,
         sess["pain_scale_asked"] = True
         return _wrap(q, "CLARIFICATION", sess)
 
-    # Build English history for Claude ───────────────────────
+    # Build English history for Claude
     eng_history = []
     for turn in history:
         content = (translate_to_english(turn["content"])
@@ -240,7 +282,19 @@ def _process_message(session_id: str, raw_message: str,
         eng_history.append({"role": turn["role"], "content": content})
     eng_history.append({"role": "user", "content": english})
 
-    # Route with Claude ──────────────────────────────────────
+    # ── Insurance pre-check ──────────────────────────────────
+    # Build a verified coverage fact and inject it into eng_history
+    # BEFORE sending to Claude, so Claude cannot ignore or contradict it.
+    insurance_fact = _build_insurance_fact(
+        message=english,
+        insurer=insurer,
+        city=user.get("city", "")
+    )
+    if insurance_fact:
+        # Insert as assistant turn just before the user's current message
+        eng_history.insert(-1, {"role": "assistant", "content": insurance_fact})
+
+    # Route with Claude
     routing = route_with_claude(
         symptom_history=eng_history,
         user_profile={
@@ -254,7 +308,7 @@ def _process_message(session_id: str, raw_message: str,
         },
     )
 
-    # Non-medical ────────────────────────────────────────────
+    # Non-medical
     if not routing.get("is_medical", True):
         voice = routing.get("voice_response", "I can only help with health questions.")
         if lang != "English":
@@ -263,7 +317,7 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "assistant", "content": voice})
         return _wrap(voice, sess["state"], sess)
 
-    # EMERGENCY from Claude ───────────────────────────────────
+    # EMERGENCY from Claude
     if routing.get("urgency") == "EMERGENCY":
         voice = routing.get("voice_response", get_emergency_response("en"))
         if lang != "English":
@@ -278,7 +332,7 @@ def _process_message(session_id: str, raw_message: str,
                      emergency_panel=get_emergency_panel(),
                      facilities=nearest)
 
-    # Needs more clarification ───────────────────────────────
+    # Needs more clarification
     if not routing.get("routing_complete") and sess["clarification_count"] < 3:
         q = routing.get("next_clarifying_question") or routing.get("voice_response", "")
         if lang != "English":
@@ -288,11 +342,10 @@ def _process_message(session_id: str, raw_message: str,
         sess["clarification_count"] += 1
         return _wrap(q, "CLARIFICATION", sess)
 
-    # Routing complete → fire parallel context fetch ─────────
+    # Routing complete → fire parallel context fetch
     department = routing.get("department", "General Medicine")
     lat, lng_  = user.get("lat"), user.get("lng")
     phone      = user.get("phone")
-    insurer    = user.get("insurance_provider") or None
 
     facilities, pmjay_ui, costs = _get_full_context(
         department, lat, lng_, phone, insurer=insurer, city=user.get("city")
@@ -418,7 +471,6 @@ def voice():
     webm_path  = wav_path = None
 
     try:
-        # Save WebM
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as tmp:
             audio_file.save(tmp.name)
             webm_path = tmp.name
@@ -431,24 +483,25 @@ def voice():
         wav_path = webm_path.replace(".webm", ".wav")
         seg.export(wav_path, format="wav")
 
-        # STT
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            recognizer.adjust_for_ambient_noise(source, duration=0.3)
-            audio_data = recognizer.record(source)
+        # STT via OpenAI Whisper
+        WHISPER_LANG = {
+            "Hindi": "hi", "Marathi": "mr",
+            "Gujarati": "gu", "Punjabi": "pa", "English": "en"
+        }
+        from openai import OpenAI as _OAI
+        _oai = _OAI(api_key=os.getenv("OPENAI_API_KEY"))
+        lang_obj     = _get_session(session_id).get("language", "English")
+        whisper_lang = WHISPER_LANG.get(language or lang_obj, "en")
 
-        lang_obj  = _get_session(session_id).get("language", "English")
-        stt_code  = LANG_STT.get(language or lang_obj, "en-IN")
-
-        for attempt in range(3):
-            try:
-                transcript = recognizer.recognize_google(audio_data, language=stt_code)
-                break
-            except sr.UnknownValueError:
-                return jsonify({"error": "Could not understand audio — please speak clearly"}), 400
-            except sr.RequestError:
-                if attempt == 2:
-                    return jsonify({"error": "Speech recognition service unavailable"}), 503
+        with open(wav_path, "rb") as af:
+            whisper_result = _oai.audio.transcriptions.create(
+                model="whisper-1",
+                file=af,
+                language=whisper_lang
+            )
+        transcript = whisper_result.text.strip()
+        if not transcript:
+            return jsonify({"error": "Could not understand audio — please speak clearly"}), 400
 
     except Exception as e:
         return jsonify({"error": f"Audio processing failed: {str(e)}"}), 400
@@ -463,7 +516,6 @@ def voice():
     result["session_id"] = session_id
     result["transcript"] = transcript
 
-    # TTS
     audio_bytes = tts(result["response"])
     result["audio"] = audio_bytes.hex() if audio_bytes else None
 
@@ -500,7 +552,6 @@ def search():
     if not lat or not lng:
         return jsonify({"error": "lat and lng are required"}), 400
 
-    # Also accept insurer from session if not passed directly
     if not insurer and session_id and session_id in sessions:
         insurer = sessions[session_id]["user"].get("insurance_provider")
 
@@ -522,12 +573,6 @@ def search():
 
 @app.route("/api/validate-treatment", methods=["POST"])
 def validate_treatment_route():
-    """
-    Validates a treatment plan against official Indian medical guidelines.
-    Body: { diagnosis, treatment, medications, cost, context }
-    Returns structured assessment with treatment_assessment, cost_assessment,
-    red_flags, guideline_citations, voice_response.
-    """
     data = request.get_json() or {}
     diagnosis   = (data.get("diagnosis")   or "").strip()
     treatment   = (data.get("treatment")   or "").strip()

@@ -1,0 +1,302 @@
+{
+  "insurer": "New India Assurance",
+  "slug": "new_india_assurance",
+  "description": "New India Assurance — largest PSU general insurer. Mediclaim policy.",
+  "coverage_note": "Broad network. Government hospitals always covered. Cashless at empanelled hospitals.",
+  "helpline": "1800-209-1415",
+  "total": 58,
+  "source": "seed_insurance_data.py — realistic demo data",
+  "parsed_at": "2025-05-06",
+  "hospitals": [
+    {
+      "name": "Apollo Hospital Bannerghatta Road",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "BGS Gleneagles Global Hospital",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Bowring and Lady Curzon Hospital",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Columbia Asia Hospital Whitefield",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Fortis Hospital Bannerghatta Road",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Manipal Hospital Old Airport Road",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Narayana Health City",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Sakra World Hospital",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Sparsh Hospital",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Victoria Hospital",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Apollo Hospital Greams Road",
+      "city": "Chennai",
+      "state": "TN"
+    },
+    {
+      "name": "Fortis Malar Hospital",
+      "city": "Chennai",
+      "state": "TN"
+    },
+    {
+      "name": "Kauvery Hospital",
+      "city": "Chennai",
+      "state": "TN"
+    },
+    {
+      "name": "MIOT International",
+      "city": "Chennai",
+      "state": "TN"
+    },
+    {
+      "name": "Madras Medical College Hospital",
+      "city": "Chennai",
+      "state": "TN"
+    },
+    {
+      "name": "Yashoda Hospital Ghaziabad",
+      "city": "Ghaziabad",
+      "state": "UP"
+    },
+    {
+      "name": "Artemis Hospital",
+      "city": "Gurugram",
+      "state": "HR"
+    },
+    {
+      "name": "Fortis Memorial Research Institute",
+      "city": "Gurugram",
+      "state": "HR"
+    },
+    {
+      "name": "Medanta The Medicity",
+      "city": "Gurugram",
+      "state": "HR"
+    },
+    {
+      "name": "Narayan Superspeciality Hospital Gurugram",
+      "city": "Gurugram",
+      "state": "HR"
+    },
+    {
+      "name": "AMRI Hospitals Salt Lake",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "Apollo Gleneagles Hospital Kolkata",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "Belle Vue Clinic",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "Fortis Hospital Anandapur",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "Peerless Hospital",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "SSKM Hospital",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "Asian Heart Institute",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Bombay Hospital and Medical Research Centre",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Breach Candy Hospital Trust",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Fortis Hiranandani Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Fortis Hospital Mulund",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Holy Family Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "KEM Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Kokilaben Dhirubhai Ambani Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Lilavati Hospital and Research Centre",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Lokmanya Tilak Municipal General Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Nanavati Super Speciality Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "P. D. Hinduja Hospital and Medical Research Centre",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Seven Hills Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Tata Memorial Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Wockhardt Hospital Mumbai Central",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "AIIMS New Delhi",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Apollo Hospital Indraprastha",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "BLK-Max Super Speciality Hospital",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Manipal Hospital Dwarka",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Maulana Azad Medical College Hospital",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Max Super Speciality Hospital Saket",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Safdarjung Hospital",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Sir Ganga Ram Hospital",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Venkateshwar Hospital",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Kailash Hospital Noida",
+      "city": "Noida",
+      "state": "UP"
+    },
+    {
+      "name": "Aditya Birla Memorial Hospital",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "Deenanath Mangeshkar Hospital",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "Jehangir Hospital",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "KEM Hospital Pune",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "Ruby Hall Clinic",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "Sahyadri Super Speciality Hospital",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "Jupiter Hospital Thane",
+      "city": "Thane",
+      "state": "MH"
+    }
+  ]
+}

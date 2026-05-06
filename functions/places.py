@@ -1,18 +1,26 @@
-import os
-import json
-import math
-import requests
+"""
+Hospital/clinic search using Google Places API (New).
+
+Two endpoints used:
+  searchNearby  — for broad "all hospitals within radius" queries (no keyword)
+  searchText    — for department-specific queries ("cardiologist hospital near me")
+                  Works far better than passing textQuery to searchNearby (which errors).
+
+Fallback chain: Places API → seed_hospitals.json → GIPSA city match
+"""
+
+import os, json, math, requests
 from dotenv import load_dotenv
 from functions.popular_times import get_wait_indicator
 from functions.gipsa import search_gipsa, is_gipsa_empanelled
 
 load_dotenv()
 
-_SEED_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "seed_hospitals.json")
-_API_URL   = "https://places.googleapis.com/v1/places:searchNearby"
-_TIMEOUT   = 3
+_SEED_PATH  = os.path.join(os.path.dirname(__file__), "..", "data", "seed_hospitals.json")
+_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
+_TEXT_URL   = "https://places.googleapis.com/v1/places:searchText"
+_TIMEOUT    = 5
 
-# Fields to request from Places API (New)
 _FIELD_MASK = ",".join([
     "places.displayName",
     "places.id",
@@ -28,29 +36,25 @@ _FIELD_MASK = ",".join([
 ])
 
 
-def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+def _haversine_km(lat1, lng1, lat2, lng2) -> float:
     R = 6371.0
-    d_lat = math.radians(lat2 - lat1)
-    d_lng = math.radians(lng2 - lng1)
-    a = (math.sin(d_lat / 2) ** 2
-         + math.cos(math.radians(lat1))
-         * math.cos(math.radians(lat2))
-         * math.sin(d_lng / 2) ** 2)
+    a = (math.sin(math.radians(lat2 - lat1) / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
+         * math.sin(math.radians(lng2 - lng1) / 2) ** 2)
     return round(R * 2 * math.asin(math.sqrt(a)), 2)
+
+
+def _key() -> str:
+    return os.getenv("GOOGLE_PLACES_API_KEY", "")
 
 
 def _place_to_dict(p: dict, user_lat: float, user_lng: float, place_type: str) -> dict:
     loc   = p.get("location", {})
     p_lat = loc.get("latitude")
     p_lng = loc.get("longitude")
-
-    coh  = p.get("currentOpeningHours", {})
-    roh  = p.get("regularOpeningHours", {})
-    name = p.get("displayName", {}).get("text", "Unknown")
-
-    # Check GIPSA empanelment from name alone (no city needed here)
-    gipsa = is_gipsa_empanelled(name)
-
+    coh   = p.get("currentOpeningHours", {})
+    roh   = p.get("regularOpeningHours", {})
+    name  = p.get("displayName", {}).get("text", "Unknown")
     return {
         "name":          name,
         "type":          place_type,
@@ -64,64 +68,95 @@ def _place_to_dict(p: dict, user_lat: float, user_lng: float, place_type: str) -
         "place_id":      p.get("id", ""),
         "lat":           p_lat,
         "lng":           p_lng,
-        "gipsa":         gipsa,
+        "gipsa":         is_gipsa_empanelled(name),
         "wait_indicator": get_wait_indicator(),
     }
 
 
-def _api_search(lat: float, lng: float, included_types: list, radius_m: int, keyword: str = None) -> list:
-    key = os.getenv("GOOGLE_PLACES_API_KEY", "")
-    if not key:
+def _search_nearby(lat: float, lng: float, types: list, radius_m: int) -> list:
+    """searchNearby — no keyword, pure type + location filter."""
+    if not _key():
         return []
-
-    body = {
-        "includedTypes": included_types,
-        "maxResultCount": 10,
-        "locationRestriction": {
-            "circle": {
-                "center": {"latitude": lat, "longitude": lng},
-                "radius": float(radius_m),
-            }
-        },
-        "rankPreference": "DISTANCE",
-    }
-    if keyword:
-        body["textQuery"] = keyword
-
     try:
-        r = requests.post(
-            _API_URL,
-            headers={"X-Goog-Api-Key": key, "X-Goog-FieldMask": _FIELD_MASK},
-            json=body,
-            timeout=_TIMEOUT,
-        )
+        r = requests.post(_NEARBY_URL,
+            headers={"X-Goog-Api-Key": _key(), "X-Goog-FieldMask": _FIELD_MASK},
+            json={
+                "includedTypes":       types,
+                "maxResultCount":      10,
+                "locationRestriction": {
+                    "circle": {
+                        "center": {"latitude": lat, "longitude": lng},
+                        "radius": float(radius_m),
+                    }
+                },
+                "rankPreference": "DISTANCE",
+            },
+            timeout=_TIMEOUT)
         r.raise_for_status()
         return r.json().get("places", [])
     except Exception:
         return []
 
 
-def _seed_fallback(department: str = None) -> list:
+def _search_text(query: str, lat: float, lng: float, radius_m: int) -> list:
+    """searchText — natural language query with location bias. Best for department searches."""
+    if not _key():
+        return []
     try:
-        with open(_SEED_PATH, "r", encoding="utf-8") as f:
-            hospitals = json.load(f)
-        if department:
-            hospitals = [h for h in hospitals if department in h.get("departments", [])]
-        return hospitals
+        r = requests.post(_TEXT_URL,
+            headers={"X-Goog-Api-Key": _key(), "X-Goog-FieldMask": _FIELD_MASK},
+            json={
+                "textQuery":      query,
+                "maxResultCount": 10,
+                "locationBias": {
+                    "circle": {
+                        "center": {"latitude": lat, "longitude": lng},
+                        "radius": float(radius_m),
+                    }
+                },
+            },
+            timeout=_TIMEOUT)
+        r.raise_for_status()
+        return r.json().get("places", [])
     except Exception:
         return []
 
 
-def _seed_to_dict(h: dict, user_lat: float = None, user_lng: float = None) -> dict:
-    distance = None
+def _dedupe_and_convert(raw: list, lat: float, lng: float, max_results: int = 5) -> list:
+    seen, results = set(), []
+    for p in raw:
+        name = p.get("displayName", {}).get("text", "")
+        if name in seen:
+            continue
+        seen.add(name)
+        types = p.get("types", [])
+        ptype = "clinic" if any(t in types for t in ("clinic", "doctor", "health", "dentist")) else "hospital"
+        results.append(_place_to_dict(p, lat, lng, ptype))
+    results.sort(key=lambda x: x["distance_km"] or 99)
+    return results[:max_results]
+
+
+def _seed_fallback(department: str = None) -> list:
+    try:
+        with open(_SEED_PATH, encoding="utf-8") as f:
+            hospitals = json.load(f)
+        if department:
+            hospitals = [h for h in hospitals if department in h.get("departments", [])]
+        return hospitals or json.load(open(_SEED_PATH))
+    except Exception:
+        return []
+
+
+def _seed_to_dict(h: dict, user_lat=None, user_lng=None) -> dict:
+    dist = None
     if user_lat and user_lng and h.get("lat") and h.get("lng"):
-        distance = _haversine_km(user_lat, user_lng, h["lat"], h["lng"])
+        dist = _haversine_km(user_lat, user_lng, h["lat"], h["lng"])
     return {
         "name":          h.get("name", ""),
         "type":          h.get("type", "hospital"),
         "address":       h.get("address", ""),
         "phone":         h.get("phone", ""),
-        "distance_km":   distance,
+        "distance_km":   dist,
         "rating":        h.get("rating"),
         "review_count":  None,
         "open_now":      h.get("open_now"),
@@ -129,76 +164,86 @@ def _seed_to_dict(h: dict, user_lat: float = None, user_lng: float = None) -> di
         "place_id":      h.get("place_id"),
         "lat":           h.get("lat"),
         "lng":           h.get("lng"),
+        "gipsa":         is_gipsa_empanelled(h.get("name", "")),
         "wait_indicator": get_wait_indicator(),
     }
 
 
 # ─────────────────────────────────────────────────────────────
 
-def search_facilities(lat: float, lng: float, department: str, radius_m: int = 5000) -> dict:
+# Department → human-readable search phrases
+_DEPT_QUERIES = {
+    "Cardiology":        "cardiologist heart hospital",
+    "Neurology":         "neurologist brain hospital",
+    "Orthopedics":       "orthopedic bone joint hospital",
+    "Gastroenterology":  "gastroenterologist stomach hospital",
+    "Dermatology":       "dermatologist skin clinic",
+    "ENT":               "ENT ear nose throat specialist",
+    "Ophthalmology":     "eye hospital ophthalmologist",
+    "Pulmonology":       "pulmonologist lung chest hospital",
+    "Endocrinology":     "endocrinologist diabetes thyroid clinic",
+    "Urology":           "urologist kidney hospital",
+    "Gynecology":        "gynecologist women hospital",
+    "Psychiatry":        "psychiatrist mental health clinic",
+    "Pediatrics":        "pediatrician children hospital",
+    "Dentistry":         "dentist dental clinic",
+    "General Medicine":  "hospital clinic doctor",
+    "Emergency":         "emergency hospital 24 hour",
+}
+
+
+def search_facilities(lat: float, lng: float, department: str,
+                      radius_m: int = 5000) -> dict:
     """
-    Hybrid hospital search combining two sources:
+    Hybrid hospital search.
 
-    1. NEARBY  — Google Places API (New): real GPS proximity, ratings, phone,
-                 open/closed status. Up to 5 results sorted by distance.
-                 Falls back to seed_hospitals.json if API unavailable.
-
-    2. GIPSA   — 2,179 government-empanelled hospitals from the Loop AI
-                 dataset, matched by city proximity (within 60 km).
-                 No lat/lng per hospital — shown as a separate "network" list.
-                 Relevant for patients using government insurance schemes.
+    Strategy:
+      1. searchText with department-aware query (best relevance)
+      2. searchNearby for broad hospital sweep (catches anything nearby)
+      3. Merge, deduplicate, sort by distance
+      4. Falls back to seed_hospitals.json if API unavailable
 
     Returns:
     {
-      "nearby":  [...],   # up to 5, sorted by distance_km — use for map pins
-      "gipsa":   [...],   # up to 8, city-level — use for insurance panel
+      "nearby": [...],   # up to 5, sorted by distance_km
+      "gipsa":  [...],   # GIPSA empanelled in the user's city
     }
     """
-    # ── Google Places ────────────────────────────────────────
-    raw_places = _api_search(lat, lng, ["hospital"], radius_m, keyword=department)
-    raw_places += _api_search(lat, lng, ["clinic", "doctor", "health"],
-                               radius_m // 2, keyword=department)
+    dept_query = _DEPT_QUERIES.get(department, "hospital clinic doctor")
+    text_query = f"{dept_query} near me"
 
-    nearby = []
-    if raw_places:
-        seen = set()
-        for p in raw_places:
-            name = p.get("displayName", {}).get("text", "")
-            if name in seen:
-                continue
-            seen.add(name)
-            types = p.get("types", [])
-            ptype = "clinic" if any(t in types for t in ("clinic","doctor","health")) else "hospital"
-            nearby.append(_place_to_dict(p, lat, lng, ptype))
-        nearby.sort(key=lambda x: x["distance_km"] or 99)
-        nearby = nearby[:5]
-    else:
-        # Seed fallback — at least show something
-        seeds = _seed_fallback(department) or _seed_fallback()
-        results = [_seed_to_dict(h, lat, lng) for h in seeds]
-        results.sort(key=lambda x: x["distance_km"] or 99)
-        nearby = results[:5]
+    # Run both searches
+    text_places   = _search_text(text_query, lat, lng, radius_m)
+    nearby_places = _search_nearby(lat, lng, ["hospital", "clinic", "doctor"], radius_m)
 
-    # ── GIPSA ────────────────────────────────────────────────
-    gipsa = search_gipsa(lat, lng, keyword=None, max_results=8)
+    # Merge: text results first (more relevant), then fill with nearby
+    combined = text_places + nearby_places
+
+    nearby = _dedupe_and_convert(combined, lat, lng, max_results=5)
+
+    # Fallback to seed if API gave nothing
+    if not nearby:
+        seeds = _seed_fallback(department)
+        nearby = sorted(
+            [_seed_to_dict(h, lat, lng) for h in seeds],
+            key=lambda x: x["distance_km"] or 99
+        )[:5]
+
+    gipsa = search_gipsa(lat, lng, max_results=8)
 
     return {"nearby": nearby, "gipsa": gipsa}
 
 
 def get_emergency_hospitals(lat: float, lng: float) -> list:
-    """
-    Returns up to 5 nearest hospitals (any type) for the emergency overlay.
-    Always returns a plain list (not the nearby/gipsa dict).
-    Falls back to seed_hospitals.json.
-    """
-    places = _api_search(lat, lng, ["hospital"], radius_m=8000, keyword="emergency")
-
-    if places:
-        results = [_place_to_dict(p, lat, lng, "hospital") for p in places]
-        results.sort(key=lambda x: x["distance_km"] or 99)
-        return results[:5]
-
-    seeds = _seed_fallback()
-    results = [_seed_to_dict(h, lat, lng) for h in seeds]
-    results.sort(key=lambda x: x["distance_km"] or 99)
-    return results[:5]
+    """Returns nearest hospitals for the emergency overlay."""
+    text_places   = _search_text("emergency hospital 24 hour", lat, lng, 8000)
+    nearby_places = _search_nearby(lat, lng, ["hospital"], 8000)
+    combined = text_places + nearby_places
+    results = _dedupe_and_convert(combined, lat, lng, max_results=5)
+    if not results:
+        seeds = _seed_fallback()
+        results = sorted(
+            [_seed_to_dict(h, lat, lng) for h in seeds],
+            key=lambda x: x["distance_km"] or 99
+        )[:5]
+    return results

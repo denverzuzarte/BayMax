@@ -167,17 +167,87 @@
       </div>
       <button onclick="openEmergency()"
         class="bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-full">
-        🚨 SOS
+        🚨
       </button>
+      <!-- Menu button -->
+      <div class="relative">
+        <button onclick="toggleMenu()"
+          class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-bold text-lg">
+          ⋮
+        </button>
+        <div id="chat-menu"
+          class="hidden absolute right-0 top-10 bg-white border border-gray-100 rounded-2xl shadow-xl py-1 w-44 z-40">
+          <button onclick="changeLocation()"
+            class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+            📍 Change Location
+          </button>
+          <button onclick="resetChat()"
+            class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+            🔄 Reset Chat
+          </button>
+          <div class="border-t border-gray-100 my-1"></div>
+          <button onclick="logout()"
+            class="w-full text-left px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 flex items-center gap-2">
+            ← Log Out
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Messages -->
-  <div id="messages" class="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50"></div>
+  <div id="messages" class="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50">
+    <!-- Placeholder shown until first message -->
+    <div id="chat-placeholder" class="flex flex-col items-center justify-center h-full text-center px-6 py-12">
+      <div class="w-20 h-20 rounded-full bg-blue-50 flex items-center justify-center mb-4">
+        <svg viewBox="0 0 80 80" class="w-16 h-16">
+          <ellipse cx="40" cy="44" rx="32" ry="30" fill="white" stroke="#e5e7eb" stroke-width="2"/>
+          <rect x="18" y="14" width="44" height="10" rx="5" fill="#0a84ff"/>
+          <circle cx="28" cy="44" r="6" fill="#1c1c1e"/>
+          <circle cx="52" cy="44" r="6" fill="#1c1c1e"/>
+          <circle cx="30" cy="42" r="2" fill="white"/>
+          <circle cx="54" cy="42" r="2" fill="white"/>
+        </svg>
+      </div>
+      <h2 class="font-semibold text-gray-800 text-lg">Hi, I'm Baymax</h2>
+      <p class="text-gray-400 text-sm mt-2 leading-relaxed">
+        Tell me what's bothering you.<br>I'll help you find the right doctor.
+      </p>
+    </div>
+  </div>
 
   <!-- Hospital cards -->
   <div id="cards-area"
     class="hidden shrink-0 max-h-64 overflow-y-auto border-t border-gray-100 bg-white px-4 py-3 space-y-2"></div>
+
+  <!-- Mode tabs -->
+  <div class="flex bg-gray-100 mx-4 mt-2 mb-1 rounded-xl p-0.5 shrink-0">
+    <button onclick="setMode('symptoms')" id="tab-symptoms"
+      class="flex-1 text-xs font-semibold py-2 rounded-lg transition-all bg-white text-blue-600 shadow-sm">
+      🩺 Find Doctor
+    </button>
+    <button onclick="setMode('treatment')" id="tab-treatment"
+      class="flex-1 text-xs font-semibold py-2 rounded-lg transition-all text-gray-500">
+      💊 Check Treatment
+    </button>
+  </div>
+
+  <!-- Treatment validator panel (hidden by default) -->
+  <div id="treatment-panel" class="hidden shrink-0 px-4 py-3 bg-purple-50 border-t border-purple-100 max-h-80 overflow-y-auto">
+    <p class="text-xs font-semibold text-purple-700 mb-2">Check if your treatment follows official Indian medical guidelines</p>
+    <input id="tv-diagnosis"   type="text" placeholder="Diagnosis / condition (e.g. Type 2 Diabetes)"
+      class="w-full px-3 py-2 rounded-xl border border-purple-200 bg-white text-sm mb-2"/>
+    <textarea id="tv-treatment" rows="2" placeholder="Treatment prescribed (medications, procedures, tests ordered)"
+      class="w-full px-3 py-2 rounded-xl border border-purple-200 bg-white text-sm mb-2 resize-none"></textarea>
+    <input id="tv-cost" type="text" placeholder="Total cost quoted (e.g. ₹45,000) — optional"
+      class="w-full px-3 py-2 rounded-xl border border-purple-200 bg-white text-sm mb-2"/>
+    <button onclick="submitTreatmentCheck()"
+      class="w-full bg-purple-600 text-white font-semibold py-2.5 rounded-xl text-sm active:bg-purple-700">
+      Validate Against Guidelines
+    </button>
+    <!-- Result area -->
+    <div id="tv-result" class="hidden mt-3 space-y-2"></div>
+  </div>
 
   <!-- Input area -->
   <div class="bg-white border-t border-gray-100 px-4 pt-3 pb-6 shrink-0">
@@ -290,24 +360,77 @@
 <script>
 const API = "";   // same origin
 
+const GREETING_TEXT = "Hi, I am Baymax, your personal healthcare companion. I am not a doctor. I will help you find the right one. What's bothering you today?";
+
 let sessionId    = localStorage.getItem("bm_sid") || crypto.randomUUID();
 let profile      = JSON.parse(localStorage.getItem("bm_profile") || "{}");
 let selectedLang = "English";
 let mediaRecorder, audioChunks = [];
 let isRecording  = false;
 let currentAudio = null;
-let chatStarted  = false;
 
 localStorage.setItem("bm_sid", sessionId);
+
+// ── Message persistence ───────────────────────────────────
+// Each message: {role:"bot"|"user", text:str, timestamp:str}
+function _saveMessages() {
+  const msgs = document.getElementById("messages");
+  const bubbles = [];
+  msgs.querySelectorAll("[data-role]").forEach(el => {
+    bubbles.push({ role: el.dataset.role, text: el.dataset.text });
+  });
+  try { localStorage.setItem("bm_messages_" + sessionId, JSON.stringify(bubbles)); } catch {}
+}
+
+function _loadMessages() {
+  try {
+    const raw = localStorage.getItem("bm_messages_" + sessionId);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function _clearMessages() {
+  localStorage.removeItem("bm_messages_" + sessionId);
+}
 
 // ── Boot ──────────────────────────────────────────────────
 window.addEventListener("load", () => {
   fetchEmergencyPanel();
   if (profile.name) {
     showScreen("chat");
-    bootChat();
+    _restoreOrGreet();
   } else {
     showScreen("onboarding");
+  }
+});
+
+function _restoreOrGreet() {
+  const saved = _loadMessages();
+  if (saved && saved.length > 0) {
+    // Restore previous conversation
+    const ph = document.getElementById("chat-placeholder");
+    if (ph) ph.remove();
+    saved.forEach(m => {
+      if (m.role === "bot") _appendBotRaw(m.text);
+      else                  _appendUserRaw(m.text);
+    });
+  } else {
+    // Fresh session — show greeting immediately, no API call
+    const ph = document.getElementById("chat-placeholder");
+    if (ph) ph.remove();
+    _appendBotRaw(GREETING_TEXT);
+    _saveMessages();
+    // Speak the greeting
+    speakText(GREETING_TEXT);
+  }
+}
+
+// Close menu when clicking outside
+document.addEventListener("click", e => {
+  const menu = document.getElementById("chat-menu");
+  if (menu && !menu.classList.contains("hidden") &&
+      !menu.contains(e.target) && !e.target.closest("button[onclick='toggleMenu()']")) {
+    menu.classList.add("hidden");
   }
 });
 
@@ -370,8 +493,15 @@ function confirmMapLocation() {
   profile.lat = _mapLat;
   profile.lng = _mapLng;
   const st = document.getElementById("ob-location-status");
-  st.textContent = `✓ Location set (${_mapLat.toFixed(4)}, ${_mapLng.toFixed(4)})`;
-  st.classList.remove("hidden");
+  if (st) {
+    st.textContent = `✓ Location set (${_mapLat.toFixed(4)}, ${_mapLng.toFixed(4)})`;
+    st.classList.remove("hidden");
+  }
+  // Callback for change-location-from-chat flow
+  if (window._afterMapConfirm) {
+    window._afterMapConfirm();
+    window._afterMapConfirm = null;
+  }
   closeMapPicker();
 }
 
@@ -405,17 +535,7 @@ function startChat() {
     method: "POST",
     headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ session_id: sessionId, ...profile })
-  }).finally(() => { showScreen("chat"); bootChat(); });
-}
-
-// ── Chat boot ─────────────────────────────────────────────
-async function bootChat() {
-  if (chatStarted) return;
-  chatStarted = true;
-  // Send init message to trigger GREETING state
-  const res = await apiPost("/api/chat", { message: "hi", session_id: sessionId, user: profile });
-  appendBot(res.response);
-  speakText(res.response);
+  }).finally(() => { showScreen("chat"); });
 }
 
 // ── Language ──────────────────────────────────────────────
@@ -512,20 +632,29 @@ function handleResponse(res) {
 }
 
 // ── Bubbles ───────────────────────────────────────────────
-function appendUser(text) {
+function _hidePlaceholder() {
+  const ph = document.getElementById("chat-placeholder");
+  if (ph) ph.remove();
+}
+
+// Raw versions (used by restore — don't re-save to avoid duplication)
+function _appendUserRaw(text) {
   const msgs = document.getElementById("messages");
   const d = document.createElement("div");
   d.className = "flex justify-end";
+  d.dataset.role = "user";
+  d.dataset.text = text;
   d.innerHTML = `<div class="bubble-user max-w-xs px-4 py-2.5 text-sm">${x(text)}</div>`;
   msgs.appendChild(d);
   msgs.scrollTop = msgs.scrollHeight;
 }
 
-function appendBot(text) {
-  hideTyping();
+function _appendBotRaw(text) {
   const msgs = document.getElementById("messages");
   const d = document.createElement("div");
   d.className = "flex items-end gap-2";
+  d.dataset.role = "bot";
+  d.dataset.text = text;
   d.innerHTML = `
     <div class="w-7 h-7 rounded-full bg-blue-50 shrink-0 flex items-center justify-center">
       <svg viewBox="0 0 20 20" class="w-5 h-5">
@@ -538,6 +667,18 @@ function appendBot(text) {
     <div class="bubble-bot max-w-xs px-4 py-2.5 text-sm leading-relaxed">${x(text)}</div>`;
   msgs.appendChild(d);
   msgs.scrollTop = msgs.scrollHeight;
+}
+
+function appendUser(text) {
+  _hidePlaceholder();
+  _appendUserRaw(text);
+  _saveMessages();
+}
+
+function appendBot(text) {
+  hideTyping();
+  _appendBotRaw(text);
+  _saveMessages();
 }
 
 let _typingEl = null;
@@ -645,6 +786,7 @@ function _buildCard(f, pmjay) {
       <div class="flex flex-wrap gap-1.5">
         ${pmjay?.badge ? `<span class="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-semibold">${x(pmjay.badge)}</span>` : ""}
         ${pmjay?.warning ? `<span class="bg-orange-100 text-orange-600 text-xs px-2 py-0.5 rounded-full">${x(pmjay.warning)}</span>` : ""}
+        ${f.insurance_badge ? `<span class="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full font-semibold" title="Helpline: ${x(f.insurance_helpline||'')}">🛡 ${x(f.insurance_badge)} ✓</span>` : ""}
       </div>
       ${f.phone ? `<a href="tel:${f.phone}" class="bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-full shrink-0">📞 Call</a>` : ""}
     </div>`;
@@ -695,6 +837,60 @@ async function speakText(text) {
 
 function stopCurrentAudio() {
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+}
+
+// ── Menu actions ─────────────────────────────────────────
+function toggleMenu() {
+  document.getElementById("chat-menu").classList.toggle("hidden");
+}
+
+function logout() {
+  if (!confirm("Log out? Your profile will be cleared.")) return;
+  _clearMessages();
+  localStorage.removeItem("bm_profile");
+  localStorage.removeItem("bm_sid");
+  profile    = {};
+  sessionId  = crypto.randomUUID();
+  localStorage.setItem("bm_sid", sessionId);
+  // Clear chat UI
+  document.getElementById("messages").innerHTML = "";
+  document.getElementById("cards-area").innerHTML = "";
+  document.getElementById("cards-area").classList.add("hidden");
+  toggleMenu();
+  showScreen("onboarding");
+}
+
+async function resetChat() {
+  if (!confirm("Reset conversation? Your profile is kept.")) return;
+  _clearMessages();
+  await fetch("/api/reset", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ session_id: sessionId })
+  });
+  // Clear UI and show greeting
+  document.getElementById("messages").innerHTML = "";
+  document.getElementById("cards-area").innerHTML = "";
+  document.getElementById("cards-area").classList.add("hidden");
+  toggleMenu();
+  _restoreOrGreet();
+}
+
+function changeLocation() {
+  toggleMenu();
+  openMapPicker();
+  // After confirm, update the server profile too
+  const origConfirm = confirmMapLocation;
+  window._afterMapConfirm = () => {
+    profile.lat = _mapLat;
+    profile.lng = _mapLng;
+    localStorage.setItem("bm_profile", JSON.stringify(profile));
+    fetch("/api/profile", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: sessionId, lat: _mapLat, lng: _mapLng })
+    });
+  };
 }
 
 // ── Emergency ─────────────────────────────────────────────
@@ -750,6 +946,137 @@ function showEmergencyOverlay(panel, nearest) {
 
 function closeEmergency() {
   document.getElementById("emergency-overlay").classList.remove("open");
+}
+
+// ── Mode switching ────────────────────────────────────────
+let _mode = "symptoms";
+function setMode(mode) {
+  _mode = mode;
+  const isTreatment = mode === "treatment";
+  document.getElementById("treatment-panel").classList.toggle("hidden", !isTreatment);
+  document.getElementById("tab-symptoms").className =
+    "flex-1 text-xs font-semibold py-2 rounded-lg transition-all " +
+    (isTreatment ? "text-gray-500" : "bg-white text-blue-600 shadow-sm");
+  document.getElementById("tab-treatment").className =
+    "flex-1 text-xs font-semibold py-2 rounded-lg transition-all " +
+    (isTreatment ? "bg-white text-purple-600 shadow-sm" : "text-gray-500");
+}
+
+// ── Treatment validator ───────────────────────────────────
+async function submitTreatmentCheck() {
+  const diagnosis = document.getElementById("tv-diagnosis").value.trim();
+  const treatment = document.getElementById("tv-treatment").value.trim();
+  const cost      = document.getElementById("tv-cost").value.trim();
+  if (!diagnosis && !treatment) {
+    alert("Please enter at least a diagnosis or treatment description.");
+    return;
+  }
+
+  const btn = document.querySelector("#treatment-panel button[onclick='submitTreatmentCheck()']");
+  btn.textContent = "Checking against guidelines…";
+  btn.disabled = true;
+
+  const result_area = document.getElementById("tv-result");
+  result_area.classList.add("hidden");
+  result_area.innerHTML = "";
+
+  try {
+    const r = await fetch("/api/validate-treatment", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ diagnosis, treatment, cost, context: "" })
+    });
+    const d = await r.json();
+    if (d.error) { alert(d.error); return; }
+    renderTreatmentResult(d);
+    speakText(d.voice_response);
+  } catch {
+    alert("Connection error. Please try again.");
+  } finally {
+    btn.textContent = "Validate Against Guidelines";
+    btn.disabled = false;
+  }
+}
+
+function renderTreatmentResult(d) {
+  const area = document.getElementById("tv-result");
+  area.classList.remove("hidden");
+
+  const treatmentColors = {
+    appropriate:        "bg-green-50 border-green-200 text-green-800",
+    questionable:       "bg-yellow-50 border-yellow-200 text-yellow-800",
+    likely_inconsistent:"bg-orange-50 border-orange-200 text-orange-800",
+  };
+  const treatmentLabels = {
+    appropriate:        "✓ Appears appropriate",
+    questionable:       "⚠ Some aspects are questionable",
+    likely_inconsistent:"⚠ Likely inconsistent with guidelines",
+  };
+  const costColors = {
+    reasonable:               "bg-green-50 border-green-200 text-green-800",
+    somewhat_high:            "bg-yellow-50 border-yellow-200 text-yellow-800",
+    highly_likely_overcharged:"bg-red-50 border-red-200 text-red-800",
+  };
+  const costLabels = {
+    reasonable:               "✓ Cost appears reasonable",
+    somewhat_high:            "⚠ Cost is somewhat high",
+    highly_likely_overcharged:"⚠ Cost is highly likely above guidelines",
+  };
+
+  const ta = d.treatment_assessment || "questionable";
+  const ca = d.cost_assessment;
+
+  let html = `
+    <div class="rounded-xl border px-3 py-2 text-xs font-semibold ${treatmentColors[ta] || treatmentColors.questionable}">
+      ${treatmentLabels[ta] || ta}
+    </div>`;
+
+  if (ca && ca !== "null") {
+    html += `
+    <div class="rounded-xl border px-3 py-2 text-xs font-semibold ${costColors[ca] || costColors.somewhat_high}">
+      ${costLabels[ca] || ca}
+    </div>`;
+  }
+
+  if (d.voice_response) {
+    html += `
+    <div class="bg-white rounded-xl border border-gray-100 px-3 py-2.5">
+      <p class="text-xs text-gray-500 font-medium mb-1">Baymax says</p>
+      <p class="text-sm text-gray-800 leading-relaxed">${x(d.voice_response)}</p>
+    </div>`;
+  }
+
+  if (d.red_flags?.length) {
+    html += `
+    <div class="bg-white rounded-xl border border-gray-100 px-3 py-2.5">
+      <p class="text-xs text-gray-500 font-medium mb-1.5">Potential concerns</p>
+      <ul class="space-y-1">
+        ${d.red_flags.map(f => `<li class="text-xs text-gray-700 flex gap-1.5"><span class="text-orange-500 shrink-0">•</span>${x(f)}</li>`).join("")}
+      </ul>
+    </div>`;
+  }
+
+  if (d.guideline_citations?.length) {
+    html += `
+    <div class="bg-white rounded-xl border border-gray-100 px-3 py-2.5">
+      <p class="text-xs text-gray-500 font-medium mb-1.5">Guideline references</p>
+      <ul class="space-y-1">
+        ${d.guideline_citations.map(c => `<li class="text-xs text-blue-700">${x(c)}</li>`).join("")}
+      </ul>
+    </div>`;
+  }
+
+  if (d.recommendations?.length) {
+    html += `
+    <div class="bg-purple-50 rounded-xl border border-purple-100 px-3 py-2.5">
+      <p class="text-xs text-purple-700 font-semibold mb-1">What to do next</p>
+      <ul class="space-y-1">
+        ${d.recommendations.map(r => `<li class="text-xs text-purple-800">${x(r)}</li>`).join("")}
+      </ul>
+    </div>`;
+  }
+
+  area.innerHTML = html;
 }
 
 // ── Helpers ───────────────────────────────────────────────

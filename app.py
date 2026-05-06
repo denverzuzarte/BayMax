@@ -29,6 +29,8 @@ from functions.translate  import detect_language, translate_to_english, translat
 from functions.places     import search_facilities, get_emergency_hospitals
 from functions.pmjay      import check_pmjay_eligibility, format_for_ui
 from functions.cghs       import get_cost_estimate
+from functions.insurance          import check_coverage, get_insurer_info
+from functions.treatment_validator import validate_treatment, preload_chunks
 
 load_dotenv()
 
@@ -105,10 +107,12 @@ def _get_session(session_id: str) -> dict:
 #  Parallel context fetch
 # ─────────────────────────────────────────────────────────────
 
-def _get_full_context(department: str, lat, lng, phone) -> tuple:
+def _get_full_context(department: str, lat, lng, phone,
+                      insurer: str = None) -> tuple:
     """
     Returns (facilities_dict, pmjay_ui, costs).
     facilities_dict = {"nearby": [...], "gipsa": [...]}
+    Nearby results are annotated with insurance_badge if insurer is provided.
     """
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_fac   = ex.submit(search_facilities, lat, lng, department) if lat and lng else None
@@ -118,7 +122,6 @@ def _get_full_context(department: str, lat, lng, phone) -> tuple:
         try:    fac_result = f_fac.result(timeout=6) if f_fac else {"nearby": [], "gipsa": []}
         except: fac_result = {"nearby": [], "gipsa": []}
 
-        # Ensure it's always the dict shape
         if isinstance(fac_result, list):
             fac_result = {"nearby": fac_result, "gipsa": []}
 
@@ -130,6 +133,13 @@ def _get_full_context(department: str, lat, lng, phone) -> tuple:
 
         try:    costs = f_costs.result(timeout=2)
         except: costs = None
+
+    # Annotate nearby results with private insurance badge (pure dict lookup, ~0ms)
+    if insurer:
+        for facility in fac_result.get("nearby", []):
+            cov = check_coverage(facility.get("name",""), facility.get("city",""), insurer)
+            facility["insurance_badge"]    = cov["badge"]
+            facility["insurance_helpline"] = cov.get("helpline")
 
     return fac_result, format_for_ui(pmjay_raw), costs
 
@@ -146,13 +156,14 @@ def _process_message(session_id: str, raw_message: str,
     if lang_override:
         sess["language"] = lang_override
 
-    # GREETING ───────────────────────────────────────────────
-    if sess["state"] == "GREETING":
+    # GREETING — transition to CLARIFICATION and fall through
+    # so the user's first real message is processed in the same turn.
+    # The greeting is prepended to whatever response is generated.
+    is_first = (sess["state"] == "GREETING")
+    if is_first:
         sess["state"] = "CLARIFICATION"
         if not lang_override:
             sess["language"] = detect_language(raw_message)
-        history.append({"role": "assistant", "content": GREETING})
-        return _wrap(GREETING, "CLARIFICATION", sess)
 
     lang = sess["language"]
 
@@ -169,7 +180,7 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "user",      "content": raw_message})
         history.append({"role": "assistant",  "content": voice})
         sess["state"] = "EMERGENCY"
-        return _wrap(voice, "EMERGENCY", sess,
+        return _wrap(voice, "EMERGENCY", sess, is_first=is_first,
                      emergency=True,
                      emergency_panel=get_emergency_panel(),
                      facilities=nearest)
@@ -182,7 +193,7 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "user",      "content": raw_message})
         history.append({"role": "assistant",  "content": q})
         sess["pain_scale_asked"] = True
-        return _wrap(q, "CLARIFICATION", sess)
+        return _wrap(q, "CLARIFICATION", sess, is_first=is_first)
 
     # Build English history for Claude ───────────────────────
     eng_history = []
@@ -214,7 +225,7 @@ def _process_message(session_id: str, raw_message: str,
             voice = translate_to_language(voice, lang)
         history.append({"role": "user",     "content": raw_message})
         history.append({"role": "assistant", "content": voice})
-        return _wrap(voice, sess["state"], sess)
+        return _wrap(voice, sess["state"], sess, is_first=is_first)
 
     # EMERGENCY from Claude ───────────────────────────────────
     if routing.get("urgency") == "EMERGENCY":
@@ -226,7 +237,7 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "user",     "content": raw_message})
         history.append({"role": "assistant", "content": voice})
         sess["state"] = "EMERGENCY"
-        return _wrap(voice, "EMERGENCY", sess,
+        return _wrap(voice, "EMERGENCY", sess, is_first=is_first,
                      routing=routing, emergency=True,
                      emergency_panel=get_emergency_panel(),
                      facilities=nearest)
@@ -239,14 +250,17 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "user",     "content": raw_message})
         history.append({"role": "assistant", "content": q})
         sess["clarification_count"] += 1
-        return _wrap(q, "CLARIFICATION", sess)
+        return _wrap(q, "CLARIFICATION", sess, is_first=is_first)
 
     # Routing complete → fire parallel context fetch ─────────
     department = routing.get("department", "General Medicine")
     lat, lng_  = user.get("lat"), user.get("lng")
     phone      = user.get("phone")
+    insurer    = user.get("insurance_provider") or None
 
-    facilities, pmjay_ui, costs = _get_full_context(department, lat, lng_, phone)
+    facilities, pmjay_ui, costs = _get_full_context(
+        department, lat, lng_, phone, insurer=insurer
+    )
     sess["last_routing"]    = routing
     sess["last_facilities"] = facilities
     sess["state"]           = "RESULTS"
@@ -258,14 +272,15 @@ def _process_message(session_id: str, raw_message: str,
     history.append({"role": "user",     "content": raw_message})
     history.append({"role": "assistant", "content": voice})
 
-    return _wrap(voice, "RESULTS", sess,
+    return _wrap(voice, "RESULTS", sess, is_first=is_first,
                  routing=routing, facilities=facilities,
                  pmjay=pmjay_ui, costs=costs)
 
 
-def _wrap(response: str, state: str, sess: dict, **extras) -> dict:
-    # facilities can be a plain list (emergency path) or the
-    # {"nearby": [...], "gipsa": [...]} dict (routing complete path)
+def _wrap(response: str, state: str, sess: dict,
+          is_first: bool = False, **extras) -> dict:
+    if is_first and not response.startswith(GREETING[:20]):
+        response = GREETING + " " + response
     fac = extras.get("facilities", {"nearby": [], "gipsa": []})
     if isinstance(fac, list):
         fac = {"nearby": fac, "gipsa": []}
@@ -311,6 +326,16 @@ def set_profile():
         if data.get(k) is not None:
             sess["user"][k] = data[k]
     return jsonify({"session_id": session_id, "ok": True})
+
+@app.route("/api/reset", methods=["POST"])
+def reset_session():
+    """Clear conversation history but keep the user profile."""
+    data       = request.get_json() or {}
+    session_id = data.get("session_id")
+    if session_id and session_id in sessions:
+        user = sessions[session_id]["user"].copy()
+        sessions[session_id] = _new_session(user)
+    return jsonify({"ok": True})
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
@@ -417,20 +442,65 @@ def search():
     department = data.get("department", "General Medicine")
     lat        = data.get("lat")
     lng        = data.get("lng")
+    insurer    = data.get("insurer") or None
+    session_id = data.get("session_id")
+
     if not lat or not lng:
         return jsonify({"error": "lat and lng are required"}), 400
+
+    # Also accept insurer from session if not passed directly
+    if not insurer and session_id and session_id in sessions:
+        insurer = sessions[session_id]["user"].get("insurance_provider")
+
     fac = search_facilities(lat, lng, department, data.get("radius_m", 5000))
     if isinstance(fac, list):
         fac = {"nearby": fac, "gipsa": []}
+
+    if insurer:
+        for facility in fac.get("nearby", []):
+            cov = check_coverage(facility.get("name",""), facility.get("city",""), insurer)
+            facility["insurance_badge"]    = cov["badge"]
+            facility["insurance_helpline"] = cov.get("helpline")
+
     return jsonify({
-        "facilities": fac,
-        "costs":      get_cost_estimate(department),
+        "facilities":    fac,
+        "costs":         get_cost_estimate(department),
+        "insurer_info":  get_insurer_info(insurer) if insurer else None,
     })
+
+@app.route("/api/validate-treatment", methods=["POST"])
+def validate_treatment_route():
+    """
+    Validates a treatment plan against official Indian medical guidelines.
+    Body: { diagnosis, treatment, medications, cost, context }
+    Returns structured assessment with treatment_assessment, cost_assessment,
+    red_flags, guideline_citations, voice_response.
+    """
+    data = request.get_json() or {}
+    diagnosis   = (data.get("diagnosis")   or "").strip()
+    treatment   = (data.get("treatment")   or "").strip()
+    medications = (data.get("medications") or "").strip()
+    cost        = (data.get("cost")        or "").strip()
+    context     = (data.get("context")     or "").strip()
+
+    if not diagnosis and not treatment:
+        return jsonify({"error": "diagnosis or treatment is required"}), 400
+
+    result = validate_treatment(diagnosis, treatment, medications, cost, context)
+    return jsonify(result)
+
 
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"\n  BayMax starting on http://localhost:{port}")
     print(f"  Anthropic API : {'✓' if os.getenv('ANTHROPIC_API_KEY') else '✗ NOT SET'}")
-    print(f"  Google Places : {'✓' if os.getenv('GOOGLE_PLACES_API_KEY') else '✗ NOT SET'}\n")
+    print(f"  Google Places : {'✓' if os.getenv('GOOGLE_PLACES_API_KEY') else '✗ NOT SET'}")
+    import threading
+    def _bg_index():
+        n = preload_chunks()
+        print(f"  ✓ Medical PDF index ready ({n} chunks)")
+    threading.Thread(target=_bg_index, daemon=True).start()
+    print(f"  PDF indexing started in background...")
+    print()
     app.run(host="0.0.0.0", port=port, debug=True)

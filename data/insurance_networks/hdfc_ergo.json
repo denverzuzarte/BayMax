@@ -1,0 +1,162 @@
+{
+  "insurer": "HDFC ERGO",
+  "slug": "hdfc_ergo",
+  "description": "HDFC ERGO Health Insurance — premium network focused on tertiary care",
+  "coverage_note": "Cashless at network hospitals. Reimbursement available at non-network hospitals.",
+  "helpline": "1800-2700-700",
+  "total": 30,
+  "source": "seed_insurance_data.py — realistic demo data",
+  "parsed_at": "2025-05-06",
+  "hospitals": [
+    {
+      "name": "Apollo Hospital Bannerghatta Road",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Fortis Hospital Bannerghatta Road",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Manipal Hospital Old Airport Road",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Narayana Health City",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Sakra World Hospital",
+      "city": "Bengaluru",
+      "state": "KA"
+    },
+    {
+      "name": "Apollo Hospital Greams Road",
+      "city": "Chennai",
+      "state": "TN"
+    },
+    {
+      "name": "Fortis Malar Hospital",
+      "city": "Chennai",
+      "state": "TN"
+    },
+    {
+      "name": "MIOT International",
+      "city": "Chennai",
+      "state": "TN"
+    },
+    {
+      "name": "Artemis Hospital",
+      "city": "Gurugram",
+      "state": "HR"
+    },
+    {
+      "name": "Fortis Memorial Research Institute",
+      "city": "Gurugram",
+      "state": "HR"
+    },
+    {
+      "name": "Medanta The Medicity",
+      "city": "Gurugram",
+      "state": "HR"
+    },
+    {
+      "name": "AMRI Hospitals Salt Lake",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "Apollo Gleneagles Hospital Kolkata",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "Fortis Hospital Anandapur",
+      "city": "Kolkata",
+      "state": "WB"
+    },
+    {
+      "name": "Asian Heart Institute",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Fortis Hiranandani Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Jaslok Hospital and Research Centre",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Kokilaben Dhirubhai Ambani Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Lilavati Hospital and Research Centre",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Nanavati Super Speciality Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "P. D. Hinduja Hospital and Medical Research Centre",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Sir H. N. Reliance Foundation Hospital",
+      "city": "Mumbai",
+      "state": "MH"
+    },
+    {
+      "name": "Apollo Hospital Indraprastha",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Manipal Hospital Dwarka",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Max Super Speciality Hospital Saket",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Sir Ganga Ram Hospital",
+      "city": "New Delhi",
+      "state": "DL"
+    },
+    {
+      "name": "Aditya Birla Memorial Hospital",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "Jehangir Hospital",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "Ruby Hall Clinic",
+      "city": "Pune",
+      "state": "MH"
+    },
+    {
+      "name": "Sahyadri Super Speciality Hospital",
+      "city": "Pune",
+      "state": "MH"
+    }
+  ]
+}

@@ -65,7 +65,17 @@ def _resolve_slug(insurer_name: str) -> str | None:
             return slug
     return None
 
-
+def _normalise_city(city: str) -> str:
+    """Normalise common Indian city name variations."""
+    c = city.lower().strip()
+    aliases = {
+        "bangalore": "bengaluru",
+        "bombay":    "mumbai",
+        "calcutta":  "kolkata",
+        "madras":    "chennai",
+        "pondicherry": "puducherry",
+    }
+    return aliases.get(c, c)
 def _tokenize(name: str) -> set[str]:
     """Lowercase, strip punctuation, remove noise words."""
     tokens = re.sub(r"[^a-z0-9 ]", " ", name.lower()).split()
@@ -103,7 +113,7 @@ def check_coverage(hospital_name: str, city: str = None, insurer_name: str = Non
 
     hospitals   = net["hospitals"]
     name_lower  = hospital_name.lower().strip()
-    city_lower  = (city or "").lower().strip()
+    city_lower  = _normalise_city(city or "")
 
     # ── Layer 1: exact name match ────────────────────────────
     for h in hospitals:
@@ -153,12 +163,13 @@ def check_coverage(hospital_name: str, city: str = None, insurer_name: str = Non
 def get_network_hospitals(insurer_name: str, city: str = None) -> list:
     """Returns all in-network hospitals for an insurer, optionally filtered by city."""
     slug = _resolve_slug(insurer_name or "")
+    
     if not slug:
         return []
     net = _load_network(slug)
     hospitals = net.get("hospitals", [])
     if city:
-        c = city.lower()
+        c = _normalise_city(city)
         hospitals = [h for h in hospitals
                      if c in h.get("city","").lower()
                      or h.get("city","").lower() in c]

@@ -19,6 +19,21 @@
       "family_size": 4,
       "card_status": "ACTIVE"
     },
+    "9372853255": {
+  "eligible": true,
+  "beneficiary_name": "Kiara Thapar",
+  "pmjay_id": "PMJAY-MH-2024-08821",
+  "scheme": "PM-JAY",
+  "scheme_full_name": "Pradhan Mantri Jan Arogya Yojana",
+  "family_coverage_inr": 500000,
+  "used_inr": 0,
+  "remaining_inr": 500000,
+  "state": "Maharashtra",
+  "enrollment_date": "2023-06-15",
+  "valid_until": "2027-03-31",
+  "family_size": 4,
+  "card_status": "ACTIVE"
+},
 
     "9876543210": {
       "eligible": true,

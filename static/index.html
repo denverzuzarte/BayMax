@@ -981,7 +981,7 @@ async function speakText(text) {
     const r = await fetch("/api/tts", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text, language: selectedLang || "English" })
     });
     const d = await r.json();
     if (d.audio) playHex(d.audio);

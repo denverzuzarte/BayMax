@@ -65,7 +65,11 @@ _HOSP_PATTERN = re.compile(
     r"bombay hospital|breach candy|nanavati|wockhardt|"
     r"jaslok|global|max|medanta|ruby|kem|nair|tata|"
     r"asian heart|saifee|masina|bhatia|holy family|"
-    r"st george|king edward|sion hospital)",
+    r"st george|king edward|sion hospital|"
+    r"seven hills|reliance foundation|reliance|"
+    r"hiranandani|mulund|jupiter|zen|criticare|"
+    r"srcc|bai jerbai|masina|cama|gt hospital|"
+    r"hn reliance|sir hn|pdcc|pd hinduja)",
     re.IGNORECASE
 )
 
@@ -73,23 +77,29 @@ _HOSP_PATTERN = re.compile(
 #  TTS helper
 # ─────────────────────────────────────────────────────────────
 
-async def _tts_async(text: str) -> bytes:
+async def _tts_async(text: str, lang: str = "English") -> bytes:
+    voice_map = {
+        "Hindi":   "hi-IN-SwaraNeural",
+        "Marathi": "mr-IN-AarohiNeural",
+        "English": "en-IN-NeerjaNeural",
+    }
+    voice = voice_map.get(lang, "en-IN-NeerjaNeural")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
         path = tmp.name
-    communicate = edge_tts.Communicate(text, BAYMAX_VOICE,
-                                       rate=BAYMAX_RATE, pitch=BAYMAX_PITCH)
+    communicate = edge_tts.Communicate(text, voice)
     await communicate.save(path)
     with open(path, "rb") as f:
         data = f.read()
     os.unlink(path)
     return data
 
-def tts(text: str) -> bytes:
+
+def tts(text: str, lang: str = "English") -> bytes:
     """Synchronous wrapper for TTS. Returns MP3 bytes."""
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(_tts_async(text))
+        result = loop.run_until_complete(_tts_async(text, lang))
         loop.close()
         return result
     except Exception as e:
@@ -233,6 +243,7 @@ def _process_message(session_id: str, raw_message: str,
 
     # Resolve insurer EARLY — needed throughout the function
     insurer = user.get("insurance_provider") or None
+    print(f"DEBUG: insurer={insurer!r}, insurance_provider value={user.get('insurance_provider')!r}, user keys={list(user.keys())}")
 
     if lang_override:
         sess["language"] = lang_override
@@ -516,17 +527,18 @@ def voice():
     result["session_id"] = session_id
     result["transcript"] = transcript
 
-    audio_bytes = tts(result["response"])
+    audio_bytes = tts(result["response"], lang=result.get("language", "English"))
     result["audio"] = audio_bytes.hex() if audio_bytes else None
 
     return jsonify(result)
 
 @app.route("/api/tts", methods=["POST"])
 def tts_endpoint():
-    text = (request.get_json() or {}).get("text", "").strip()
+    req_data = request.get_json() or {}
+    text = req_data.get("text", "").strip()
     if not text:
         return jsonify({"error": "text required"}), 400
-    audio_bytes = tts(text)
+    audio_bytes = tts(text, lang=req_data.get("language", "English"))
     if not audio_bytes:
         return jsonify({"error": "TTS failed"}), 500
     return jsonify({"audio": audio_bytes.hex()})

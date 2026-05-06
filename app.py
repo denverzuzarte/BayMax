@@ -104,16 +104,53 @@ def _get_session(session_id: str) -> dict:
     return sessions[session_id]
 
 # ─────────────────────────────────────────────────────────────
+#  City → coordinates fallback (instant, no network)
+# ─────────────────────────────────────────────────────────────
+
+_CITY_COORDS = {
+    "mumbai": (19.0760, 72.8777), "bombay": (19.0760, 72.8777),
+    "delhi": (28.6139, 77.2090), "new delhi": (28.6139, 77.2090),
+    "bengaluru": (12.9716, 77.5946), "bangalore": (12.9716, 77.5946),
+    "pune": (18.5204, 73.8567),
+    "kolkata": (22.5726, 88.3639), "calcutta": (22.5726, 88.3639),
+    "hyderabad": (17.3850, 78.4867),
+    "chennai": (13.0827, 80.2707), "madras": (13.0827, 80.2707),
+    "ahmedabad": (23.0225, 72.5714),
+    "gurugram": (28.4595, 77.0266), "gurgaon": (28.4595, 77.0266),
+    "noida": (28.5355, 77.3910),
+    "faridabad": (28.4089, 77.3178),
+    "ghaziabad": (28.6692, 77.4538),
+    "jaipur": (26.9124, 75.7873),
+    "lucknow": (26.8467, 80.9462),
+    "surat": (21.1702, 72.8311),
+    "nagpur": (21.1458, 79.0882),
+}
+
+def _resolve_coords(lat, lng, city: str = None):
+    """Returns (lat, lng) — uses city lookup if coordinates not already set."""
+    if lat and lng:
+        return lat, lng
+    if city:
+        key = city.lower().strip()
+        for k, v in _CITY_COORDS.items():
+            if k in key or key in k:
+                return v
+    return None, None
+
+
+# ─────────────────────────────────────────────────────────────
 #  Parallel context fetch
 # ─────────────────────────────────────────────────────────────
 
 def _get_full_context(department: str, lat, lng, phone,
-                      insurer: str = None) -> tuple:
+                      insurer: str = None, city: str = None) -> tuple:
     """
     Returns (facilities_dict, pmjay_ui, costs).
     facilities_dict = {"nearby": [...], "gipsa": [...]}
     Nearby results are annotated with insurance_badge if insurer is provided.
     """
+    lat, lng = _resolve_coords(lat, lng, city)
+
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_fac   = ex.submit(search_facilities, lat, lng, department) if lat and lng else None
         f_pmjay = ex.submit(check_pmjay_eligibility, phone=phone)
@@ -156,11 +193,10 @@ def _process_message(session_id: str, raw_message: str,
     if lang_override:
         sess["language"] = lang_override
 
-    # GREETING — transition to CLARIFICATION and fall through
-    # so the user's first real message is processed in the same turn.
-    # The greeting is prepended to whatever response is generated.
-    is_first = (sess["state"] == "GREETING")
-    if is_first:
+    # If somehow still in GREETING (shouldn't happen — /api/init-session handles this),
+    # silently transition and continue processing normally. No greeting prepend here —
+    # the frontend always shows the greeting directly from the hardcoded constant.
+    if sess["state"] == "GREETING":
         sess["state"] = "CLARIFICATION"
         if not lang_override:
             sess["language"] = detect_language(raw_message)
@@ -180,7 +216,7 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "user",      "content": raw_message})
         history.append({"role": "assistant",  "content": voice})
         sess["state"] = "EMERGENCY"
-        return _wrap(voice, "EMERGENCY", sess, is_first=is_first,
+        return _wrap(voice, "EMERGENCY", sess,
                      emergency=True,
                      emergency_panel=get_emergency_panel(),
                      facilities=nearest)
@@ -193,7 +229,7 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "user",      "content": raw_message})
         history.append({"role": "assistant",  "content": q})
         sess["pain_scale_asked"] = True
-        return _wrap(q, "CLARIFICATION", sess, is_first=is_first)
+        return _wrap(q, "CLARIFICATION", sess)
 
     # Build English history for Claude ───────────────────────
     eng_history = []
@@ -225,7 +261,7 @@ def _process_message(session_id: str, raw_message: str,
             voice = translate_to_language(voice, lang)
         history.append({"role": "user",     "content": raw_message})
         history.append({"role": "assistant", "content": voice})
-        return _wrap(voice, sess["state"], sess, is_first=is_first)
+        return _wrap(voice, sess["state"], sess)
 
     # EMERGENCY from Claude ───────────────────────────────────
     if routing.get("urgency") == "EMERGENCY":
@@ -237,7 +273,7 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "user",     "content": raw_message})
         history.append({"role": "assistant", "content": voice})
         sess["state"] = "EMERGENCY"
-        return _wrap(voice, "EMERGENCY", sess, is_first=is_first,
+        return _wrap(voice, "EMERGENCY", sess,
                      routing=routing, emergency=True,
                      emergency_panel=get_emergency_panel(),
                      facilities=nearest)
@@ -250,7 +286,7 @@ def _process_message(session_id: str, raw_message: str,
         history.append({"role": "user",     "content": raw_message})
         history.append({"role": "assistant", "content": q})
         sess["clarification_count"] += 1
-        return _wrap(q, "CLARIFICATION", sess, is_first=is_first)
+        return _wrap(q, "CLARIFICATION", sess)
 
     # Routing complete → fire parallel context fetch ─────────
     department = routing.get("department", "General Medicine")
@@ -259,7 +295,7 @@ def _process_message(session_id: str, raw_message: str,
     insurer    = user.get("insurance_provider") or None
 
     facilities, pmjay_ui, costs = _get_full_context(
-        department, lat, lng_, phone, insurer=insurer
+        department, lat, lng_, phone, insurer=insurer, city=user.get("city")
     )
     sess["last_routing"]    = routing
     sess["last_facilities"] = facilities
@@ -272,15 +308,12 @@ def _process_message(session_id: str, raw_message: str,
     history.append({"role": "user",     "content": raw_message})
     history.append({"role": "assistant", "content": voice})
 
-    return _wrap(voice, "RESULTS", sess, is_first=is_first,
+    return _wrap(voice, "RESULTS", sess,
                  routing=routing, facilities=facilities,
                  pmjay=pmjay_ui, costs=costs)
 
 
-def _wrap(response: str, state: str, sess: dict,
-          is_first: bool = False, **extras) -> dict:
-    if is_first and not response.startswith(GREETING[:20]):
-        response = GREETING + " " + response
+def _wrap(response: str, state: str, sess: dict, **extras) -> dict:
     fac = extras.get("facilities", {"nearby": [], "gipsa": []})
     if isinstance(fac, list):
         fac = {"nearby": fac, "gipsa": []}
@@ -326,6 +359,25 @@ def set_profile():
         if data.get(k) is not None:
             sess["user"][k] = data[k]
     return jsonify({"session_id": session_id, "ok": True})
+
+@app.route("/api/init-session", methods=["POST"])
+def init_session():
+    """
+    Called by the frontend immediately after showing the hardcoded greeting bubble.
+    Moves the backend session from GREETING → CLARIFICATION so that when the
+    user sends their first real message it is processed normally, not wrapped
+    in the greeting a second time.
+    """
+    data       = request.get_json() or {}
+    session_id = data.get("session_id") or str(uuid.uuid4())
+    if "user" in data and isinstance(data["user"], dict):
+        _get_session(session_id)["user"].update(data["user"])
+    sess = _get_session(session_id)
+    if sess["state"] == "GREETING":
+        sess["state"] = "CLARIFICATION"
+        sess["history"].append({"role": "assistant", "content": GREETING})
+    return jsonify({"session_id": session_id, "ok": True})
+
 
 @app.route("/api/reset", methods=["POST"])
 def reset_session():

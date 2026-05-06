@@ -8,6 +8,14 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>BayMax</title>
   <link rel="manifest" href="/static/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () =>
+        navigator.serviceWorker.register('/static/sw.js').catch(() => {})
+      );
+    }
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -76,16 +84,16 @@
         class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-base"/>
     </div>
     <div>
-      <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">City *</label>
+      <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">City + Location *</label>
       <div class="flex gap-2">
-        <input id="ob-city" type="text" placeholder="Mumbai"
+        <input id="ob-city" type="text" placeholder="Type your city (e.g. Mumbai)"
           class="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-base"/>
         <button onclick="openMapPicker()"
-          class="px-4 py-3 rounded-xl bg-blue-50 text-blue-600 font-medium text-sm whitespace-nowrap">
-          📍 Map
+          class="px-4 py-3 rounded-xl bg-blue-500 text-white font-semibold text-sm whitespace-nowrap">
+          📍 Set on Map
         </button>
       </div>
-      <p id="ob-location-status" class="text-xs text-gray-400 mt-1 hidden"></p>
+      <p id="ob-location-status" class="text-xs text-orange-500 mt-1">Required — tap "Set on Map" to pin your exact location</p>
     </div>
     <div>
       <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Age (optional)</label>
@@ -265,14 +273,14 @@
     <div class="flex flex-col items-center">
       <button id="voice-btn"
         class="w-16 h-16 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-lg"
-        onmousedown="startVoice()" onmouseup="stopVoice()"
-        ontouchstart="startVoice(event)" ontouchend="stopVoice()">
+        onclick="recognition ? stopVoice() : startVoice()"
+        ontouchstart="startVoice(event)" ontouchend="">
         <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round"
             d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 3a4 4 0 014 4v4a4 4 0 01-8 0V7a4 4 0 014-4z"/>
         </svg>
       </button>
-      <p id="voice-status" class="text-xs text-gray-400 mt-2">Hold to speak</p>
+      <p id="voice-status" class="text-xs text-gray-400 mt-2" id="voice-status">Tap to speak</p>
       <div class="flex gap-4 mt-2">
         <a href="tel:112" class="text-xs text-red-400 font-semibold">112 Emergency</a>
         <a href="tel:108" class="text-xs text-red-400 font-semibold">108 Ambulance</a>
@@ -365,6 +373,13 @@ const GREETING_TEXT = "Hi, I am Baymax, your personal healthcare companion. I am
 let sessionId    = localStorage.getItem("bm_sid") || crypto.randomUUID();
 let profile      = JSON.parse(localStorage.getItem("bm_profile") || "{}");
 let selectedLang = "English";
+// Browser Speech Recognition (works on Vercel — no FFmpeg needed)
+// Falls back to upload-based /api/voice only if Web Speech API unavailable
+const SpeechRecog = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition   = null;
+let _lastTranscript = "";
+
+// Legacy fields kept for /api/voice fallback path
 let mediaRecorder, audioChunks = [];
 let isRecording  = false;
 let currentAudio = null;
@@ -404,25 +419,37 @@ window.addEventListener("load", () => {
   }
 });
 
-function _restoreOrGreet() {
+async function _restoreOrGreet() {
+  const ph = document.getElementById("chat-placeholder");
+  if (ph) ph.remove();
+
   const saved = _loadMessages();
   if (saved && saved.length > 0) {
-    // Restore previous conversation
-    const ph = document.getElementById("chat-placeholder");
-    if (ph) ph.remove();
+    // Restore previous conversation from localStorage
     saved.forEach(m => {
       if (m.role === "bot") _appendBotRaw(m.text);
       else                  _appendUserRaw(m.text);
     });
+    // Sync backend past GREETING in case server restarted
+    _initBackendSession();
   } else {
-    // Fresh session — show greeting immediately, no API call
-    const ph = document.getElementById("chat-placeholder");
-    if (ph) ph.remove();
+    // Fresh session — show greeting immediately from constant (no API call delay)
     _appendBotRaw(GREETING_TEXT);
     _saveMessages();
-    // Speak the greeting
     speakText(GREETING_TEXT);
+    // Tell backend the greeting was shown — move it past GREETING state
+    // so the user's first real message isn't wrapped in it again
+    _initBackendSession();
   }
+}
+
+function _initBackendSession() {
+  // Fire-and-forget — moves backend GREETING → CLARIFICATION
+  fetch("/api/init-session", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({session_id: sessionId, user: profile})
+  }).catch(() => {});
 }
 
 // Close menu when clicking outside
@@ -445,20 +472,23 @@ let _mapLat = 19.0760, _mapLng = 72.8777;   // Mumbai default
 
 function openMapPicker() {
   document.getElementById("map-modal").classList.add("open");
-  // Init Leaflet once
   if (!_map) {
     _map = L.map("map", { zoomControl: true, attributionControl: false });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(_map);
     _map.on("moveend", _onMapMove);
   }
-  // Centre on known location or browser location
+
+  // Always start from the last confirmed location (profile.lat/lng first,
+  // then _mapLat/_mapLng from a previous session, then Mumbai default)
   const startLat = profile.lat || _mapLat;
   const startLng = profile.lng || _mapLng;
-  _map.setView([startLat, startLng], 14);
-  setTimeout(() => _map.invalidateSize(), 150);
+  _mapLat = startLat;
+  _mapLng = startLng;
+  _map.setView([startLat, startLng], 15);
+  setTimeout(() => { _map.invalidateSize(); _map.setView([startLat, startLng], 15); }, 200);
 
-  // Try to get browser location for a better start
-  if (!profile.lat) {
+  // Try browser location only if we have no location at all
+  if (!profile.lat && !profile._lat) {
     navigator.geolocation.getCurrentPosition(p => {
       _mapLat = p.coords.latitude;
       _mapLng = p.coords.longitude;
@@ -490,11 +520,14 @@ async function _onMapMove() {
 }
 
 function confirmMapLocation() {
-  profile.lat = _mapLat;
-  profile.lng = _mapLng;
+  profile.lat  = _mapLat;
+  profile.lng  = _mapLng;
+  profile._lat = _mapLat;   // keep _lat in sync too
+  profile._lng = _mapLng;
   const st = document.getElementById("ob-location-status");
   if (st) {
-    st.textContent = `✓ Location set (${_mapLat.toFixed(4)}, ${_mapLng.toFixed(4)})`;
+    st.textContent = `✓ Location pinned (${_mapLat.toFixed(4)}, ${_mapLng.toFixed(4)})`;
+    st.style.color = "#16a34a";
     st.classList.remove("hidden");
   }
   // Callback for change-location-from-chat flow
@@ -511,7 +544,50 @@ function closeMapPicker() {
 
 // ── Onboarding ───────────────────────────────────────────
 
-function startChat() {
+// Known city centres — instant fallback, no network needed
+const CITY_COORDS = {
+  "mumbai":    [19.0760, 72.8777], "bombay":    [19.0760, 72.8777],
+  "delhi":     [28.6139, 77.2090], "new delhi": [28.6139, 77.2090],
+  "bengaluru": [12.9716, 77.5946], "bangalore": [12.9716, 77.5946],
+  "pune":      [18.5204, 73.8567],
+  "kolkata":   [22.5726, 88.3639], "calcutta":  [22.5726, 88.3639],
+  "hyderabad": [17.3850, 78.4867],
+  "chennai":   [13.0827, 80.2707], "madras":    [13.0827, 80.2707],
+  "ahmedabad": [23.0225, 72.5714],
+  "gurugram":  [28.4595, 77.0266], "gurgaon":   [28.4595, 77.0266],
+  "noida":     [28.5355, 77.3910],
+  "faridabad": [28.4089, 77.3178],
+  "ghaziabad": [28.6692, 77.4538],
+  "jaipur":    [26.9124, 75.7873],
+  "lucknow":   [26.8467, 80.9462],
+  "surat":     [21.1702, 72.8311],
+  "nagpur":    [21.1458, 79.0882],
+};
+
+function _cityToCoords(cityName) {
+  const key = cityName.toLowerCase().trim();
+  return CITY_COORDS[key] || null;
+}
+
+async function _geocodeCity(cityName) {
+  // 1. Instant lookup from hardcoded table
+  const known = _cityToCoords(cityName);
+  if (known) return { lat: known[0], lng: known[1], source: "lookup" };
+
+  // 2. Nominatim geocode as fallback
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cityName + ', India')}&format=json&limit=1`,
+      { headers: { "Accept-Language": "en" } }
+    );
+    const d = await r.json();
+    if (d && d[0]) return { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon), source: "nominatim" };
+  } catch {}
+
+  return null;
+}
+
+async function startChat() {
   const name  = document.getElementById("ob-name").value.trim();
   const phone = document.getElementById("ob-phone").value.trim();
   const city  = document.getElementById("ob-city").value.trim();
@@ -519,11 +595,25 @@ function startChat() {
     alert("Please fill in Name, Phone, and City.");
     return;
   }
+
+  // lat/lng is required for finding nearby hospitals
+  let lat = profile.lat || profile._lat || null;
+  let lng = profile.lng || profile._lng || null;
+
+  if (!lat || !lng) {
+    // Block submission — tell user to set location
+    const st = document.getElementById("ob-location-status");
+    st.textContent = "📍 Please set your location on the map so we can find nearby hospitals";
+    st.classList.remove("hidden");
+    st.style.color = "#ef4444";
+    // Auto-open the map picker
+    openMapPicker();
+    return;
+  }
+
   profile = {
-    name, phone, city,
+    name, phone, city, lat, lng,
     age:               document.getElementById("ob-age").value.trim() || null,
-    lat:               profile._lat || null,
-    lng:               profile._lng || null,
     insurance_provider:document.getElementById("ob-ins-provider").value.trim() || null,
     insurance_plan:    document.getElementById("ob-ins-plan").value.trim() || null,
     pmjay_id:          document.getElementById("ob-pmjay").value.trim() || null,
@@ -560,24 +650,74 @@ async function sendText() {
 }
 
 // ── Voice ─────────────────────────────────────────────────
-async function startVoice(e) {
+function startVoice(e) {
   if (e) e.preventDefault();
+  if (recognition) return;   // already running
+
+  // ── Path A: Web Speech API (browser STT — works on Vercel, no FFmpeg) ──
+  if (SpeechRecog) {
+    recognition = new SpeechRecog();
+    recognition.continuous     = false;
+    recognition.interimResults = true;
+    recognition.lang = selectedLang === "Hindi"   ? "hi-IN"
+                     : selectedLang === "Marathi" ? "mr-IN"
+                     : "en-IN";
+
+    _lastTranscript = "";
+
+    recognition.onstart = () => {
+      document.getElementById("voice-btn").classList.add("recording");
+      setStatus("Listening… speak now");
+    };
+
+    recognition.onresult = ev => {
+      _lastTranscript = Array.from(ev.results).map(r => r[0].transcript).join("");
+      setStatus(_lastTranscript || "Listening…");
+    };
+
+    recognition.onerror = ev => {
+      if (ev.error === "not-allowed") setStatus("Microphone access denied");
+      else setStatus("Hold to speak");
+      recognition = null;
+      document.getElementById("voice-btn").classList.remove("recording","processing");
+    };
+
+    recognition.onend = async () => {
+      document.getElementById("voice-btn").classList.remove("recording");
+      const transcript = _lastTranscript.trim();
+      recognition = null;
+      setStatus("Hold to speak");
+      if (!transcript) return;
+      appendUser(transcript);
+      const res = await apiPost("/api/chat", {
+        message: transcript, session_id: sessionId,
+        language: selectedLang, user: profile
+      });
+      handleResponse(res);
+    };
+
+    recognition.start();
+    return;
+  }
+
+  // ── Path B: Fallback — upload WebM to /api/voice (self-hosted with FFmpeg) ──
   if (isRecording) return;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
     audioChunks  = [];
     mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
     mediaRecorder.ondataavailable = ev => audioChunks.push(ev.data);
     mediaRecorder.start();
     isRecording = true;
     document.getElementById("voice-btn").classList.add("recording");
-    document.getElementById("voice-status").textContent = "Listening… release to send";
-  } catch {
-    document.getElementById("voice-status").textContent = "Microphone access denied";
-  }
+    setStatus("Listening… release to send");
+  }).catch(() => setStatus("Microphone access denied"));
 }
 
 async function stopVoice() {
+  // ── Path A: stop Web Speech API ──
+  if (recognition) { recognition.stop(); return; }
+
+  // ── Path B: stop WebM recorder and upload ──
   if (!isRecording || !mediaRecorder) return;
   isRecording = false;
   const btn = document.getElementById("voice-btn");
@@ -589,24 +729,16 @@ async function stopVoice() {
     mediaRecorder.onstop = async () => {
       const blob = new Blob(audioChunks, { type: "audio/webm" });
       mediaRecorder.stream.getTracks().forEach(t => t.stop());
-
       const fd = new FormData();
-      fd.append("audio",      blob, "rec.webm");
+      fd.append("audio", blob, "rec.webm");
       fd.append("session_id", sessionId);
       fd.append("language",   selectedLang);
-
       try {
         const r   = await fetch("/api/voice", { method:"POST", body: fd });
         const res = await r.json();
-        if (res.error) {
-          appendBot("Sorry, I couldn't catch that. Please try again or type.");
-        } else {
-          if (res.transcript) appendUser(res.transcript);
-          handleResponse(res);
-        }
-      } catch {
-        appendBot("Connection error — please try again.");
-      }
+        if (res.error) appendBot("Sorry, I couldn't catch that. Please try again or type.");
+        else { if (res.transcript) appendUser(res.transcript); handleResponse(res); }
+      } catch { appendBot("Connection error — please try again."); }
       btn.classList.remove("processing");
       setStatus("Hold to speak");
       resolve();

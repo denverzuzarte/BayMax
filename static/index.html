@@ -273,14 +273,13 @@
     <div class="flex flex-col items-center">
       <button id="voice-btn"
         class="w-16 h-16 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-lg"
-        onclick="recognition ? stopVoice() : startVoice()"
-        ontouchstart="startVoice(event)" ontouchend="">
+        onclick="toggleVoice()">
         <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round"
             d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 3a4 4 0 014 4v4a4 4 0 01-8 0V7a4 4 0 014-4z"/>
         </svg>
       </button>
-      <p id="voice-status" class="text-xs text-gray-400 mt-2" id="voice-status">Tap to speak</p>
+      <p id="voice-status" class="text-xs text-gray-400 mt-2">Tap to speak</p>
       <div class="flex gap-4 mt-2">
         <a href="tel:112" class="text-xs text-red-400 font-semibold">112 Emergency</a>
         <a href="tel:108" class="text-xs text-red-400 font-semibold">108 Ambulance</a>
@@ -650,77 +649,95 @@ async function sendText() {
 }
 
 // ── Voice ─────────────────────────────────────────────────
-function startVoice(e) {
-  if (e) e.preventDefault();
-  if (recognition) return;   // already running
+function toggleVoice() {
+  if (recognition || isRecording) {
+    _stopVoice();
+  } else {
+    _startVoice();
+  }
+}
 
-  // ── Path A: Web Speech API (browser STT — works on Vercel, no FFmpeg) ──
+function _startVoice() {
+  const btn = document.getElementById("voice-btn");
+
+  // ── Path A: Web Speech API (Vercel-compatible, no FFmpeg) ──
   if (SpeechRecog) {
     recognition = new SpeechRecog();
-    recognition.continuous     = false;
+    recognition.continuous     = true;   // keep going until stop() is called
     recognition.interimResults = true;
     recognition.lang = selectedLang === "Hindi"   ? "hi-IN"
                      : selectedLang === "Marathi" ? "mr-IN"
                      : "en-IN";
-
     _lastTranscript = "";
+    let _stopping = false;   // flag so onend knows it was explicit
 
     recognition.onstart = () => {
-      document.getElementById("voice-btn").classList.add("recording");
-      setStatus("Listening… speak now");
+      btn.classList.add("recording");
+      setStatus("Listening… tap to stop");
     };
 
     recognition.onresult = ev => {
-      _lastTranscript = Array.from(ev.results).map(r => r[0].transcript).join("");
+      // Accumulate all final + interim results
+      _lastTranscript = Array.from(ev.results)
+        .map(r => r[0].transcript).join(" ").trim();
       setStatus(_lastTranscript || "Listening…");
     };
 
     recognition.onerror = ev => {
       if (ev.error === "not-allowed") setStatus("Microphone access denied");
-      else setStatus("Hold to speak");
+      else if (ev.error !== "aborted") setStatus("Tap to speak");
       recognition = null;
-      document.getElementById("voice-btn").classList.remove("recording","processing");
+      _stopping = false;
+      btn.classList.remove("recording", "processing");
     };
 
     recognition.onend = async () => {
-      document.getElementById("voice-btn").classList.remove("recording");
+      btn.classList.remove("recording");
       const transcript = _lastTranscript.trim();
       recognition = null;
-      setStatus("Hold to speak");
-      if (!transcript) return;
+      _stopping = false;
+
+      if (!transcript) { setStatus("Tap to speak"); return; }
+
+      setStatus("Sending…");
       appendUser(transcript);
       const res = await apiPost("/api/chat", {
         message: transcript, session_id: sessionId,
         language: selectedLang, user: profile
       });
+      setStatus("Tap to speak");
       handleResponse(res);
     };
 
-    recognition.start();
+    try { recognition.start(); }
+    catch { recognition = null; setStatus("Tap to speak"); }
     return;
   }
 
-  // ── Path B: Fallback — upload WebM to /api/voice (self-hosted with FFmpeg) ──
-  if (isRecording) return;
+  // ── Path B: WebM upload fallback (self-hosted with FFmpeg) ──
   navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-    audioChunks  = [];
+    audioChunks   = [];
     mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
     mediaRecorder.ondataavailable = ev => audioChunks.push(ev.data);
     mediaRecorder.start();
     isRecording = true;
-    document.getElementById("voice-btn").classList.add("recording");
-    setStatus("Listening… release to send");
+    btn.classList.add("recording");
+    setStatus("Recording… tap to send");
   }).catch(() => setStatus("Microphone access denied"));
 }
 
-async function stopVoice() {
+async function _stopVoice() {
+  const btn = document.getElementById("voice-btn");
+
   // ── Path A: stop Web Speech API ──
-  if (recognition) { recognition.stop(); return; }
+  if (recognition) {
+    recognition.stop();   // triggers recognition.onend → sends transcript
+    return;
+  }
 
   // ── Path B: stop WebM recorder and upload ──
   if (!isRecording || !mediaRecorder) return;
   isRecording = false;
-  const btn = document.getElementById("voice-btn");
   btn.classList.remove("recording");
   btn.classList.add("processing");
   setStatus("Processing…");
@@ -734,18 +751,22 @@ async function stopVoice() {
       fd.append("session_id", sessionId);
       fd.append("language",   selectedLang);
       try {
-        const r   = await fetch("/api/voice", { method:"POST", body: fd });
+        const r   = await fetch("/api/voice", { method: "POST", body: fd });
         const res = await r.json();
         if (res.error) appendBot("Sorry, I couldn't catch that. Please try again or type.");
         else { if (res.transcript) appendUser(res.transcript); handleResponse(res); }
       } catch { appendBot("Connection error — please try again."); }
       btn.classList.remove("processing");
-      setStatus("Hold to speak");
+      setStatus("Tap to speak");
       resolve();
     };
     mediaRecorder.stop();
   });
 }
+
+// Keep old names as aliases so any existing calls still work
+function startVoice(e) { if (e) e.preventDefault(); _startVoice(); }
+async function stopVoice() { await _stopVoice(); }
 
 // ── Response handler ──────────────────────────────────────
 function handleResponse(res) {

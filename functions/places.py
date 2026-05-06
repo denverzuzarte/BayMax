@@ -171,6 +171,33 @@ def _seed_to_dict(h: dict, user_lat=None, user_lng=None) -> dict:
 
 # ─────────────────────────────────────────────────────────────
 
+# Keywords that must NOT appear in result names for a given department.
+# Catches blatant mismatches like an eye clinic for leg pain.
+_DEPT_EXCLUSIONS = {
+    "Cardiology":       ["eye", "dental", "dent", "skin", "derma", "ortho", "gynae", "gynec"],
+    "Orthopedics":      ["eye", "dental", "dent", "skin", "derma", "cardiac", "heart", "gynae"],
+    "Neurology":        ["eye", "dental", "dent", "skin", "derma", "orthop", "gynae"],
+    "Gastroenterology": ["eye", "dental", "dent", "skin", "derma", "orthop", "cardiac"],
+    "Dermatology":      ["eye", "dental", "dent", "cardiac", "heart", "orthop", "neuro"],
+    "Ophthalmology":    ["dental", "dent", "orthop", "cardiac", "heart", "gastro"],
+    "ENT":              ["eye", "ophthal", "dental", "cardiac", "orthop", "skin"],
+    "Pulmonology":      ["eye", "dental", "dent", "skin", "derma", "orthop"],
+    "Urology":          ["eye", "dental", "dent", "skin", "derma", "cardiac"],
+    "Gynecology":       ["eye", "dental", "dent", "orthop", "cardiac", "neuro"],
+    "Psychiatry":       ["eye", "dental", "dent", "orthop", "cardiac", "skin"],
+    "Pediatrics":       ["eye", "dental", "dent", "skin", "cardiac"],
+    "Dentistry":        ["eye", "ophthal", "cardiac", "orthop", "neuro", "gastro"],
+    "Endocrinology":    ["eye", "dental", "dent", "orthop"],
+}
+
+def _is_relevant(place_name: str, department: str) -> bool:
+    """Returns False if the place name contains a keyword that clearly
+    contradicts the department being searched."""
+    exclusions = _DEPT_EXCLUSIONS.get(department, [])
+    name_lower = place_name.lower()
+    return not any(excl in name_lower for excl in exclusions)
+
+
 # Department → human-readable search phrases
 _DEPT_QUERIES = {
     "Cardiology":        "cardiologist heart hospital",
@@ -195,31 +222,47 @@ _DEPT_QUERIES = {
 def search_facilities(lat: float, lng: float, department: str,
                       radius_m: int = 5000) -> dict:
     """
-    Hybrid hospital search.
+    Department-specific hospital/clinic search.
 
     Strategy:
-      1. searchText with department-aware query (best relevance)
-      2. searchNearby for broad hospital sweep (catches anything nearby)
-      3. Merge, deduplicate, sort by distance
+      1. searchText with a department-specific natural language query
+         e.g. "orthopedic bone joint hospital near me" for Orthopedics
+      2. Filter results: drop places whose name clearly contradicts the dept
+         (e.g. "Mumbai Eye Hospital" for an Orthopedics search)
+      3. If fewer than 3 relevant results, do a second broader text search
+         e.g. "hospital near me" — but still filter for relevance
       4. Falls back to seed_hospitals.json if API unavailable
+
+    Does NOT use searchNearby — that returns anything nearby (eye clinic
+    for leg pain, dental clinic for chest pain, etc.)
 
     Returns:
     {
-      "nearby": [...],   # up to 5, sorted by distance_km
-      "gipsa":  [...],   # GIPSA empanelled in the user's city
+      "nearby": [...],   # up to 5, sorted by distance_km, all relevant
+      "gipsa":  [...],   # GIPSA empanelled hospitals in the user's city
     }
     """
     dept_query = _DEPT_QUERIES.get(department, "hospital clinic doctor")
-    text_query = f"{dept_query} near me"
 
-    # Run both searches
-    text_places   = _search_text(text_query, lat, lng, radius_m)
-    nearby_places = _search_nearby(lat, lng, ["hospital", "clinic", "doctor"], radius_m)
+    # Primary: specific department query
+    raw = _search_text(f"{dept_query} near me", lat, lng, radius_m)
 
-    # Merge: text results first (more relevant), then fill with nearby
-    combined = text_places + nearby_places
+    # Filter for relevance before converting
+    relevant = [p for p in raw
+                if _is_relevant(p.get("displayName", {}).get("text", ""), department)]
 
-    nearby = _dedupe_and_convert(combined, lat, lng, max_results=5)
+    # If we got fewer than 3 relevant results, add a broader hospital search
+    # and filter that too — General Medicine accepts anything
+    if len(relevant) < 3:
+        broader = _search_text("hospital clinic near me", lat, lng, radius_m)
+        seen_ids = {p.get("id") for p in relevant}
+        for p in broader:
+            if p.get("id") not in seen_ids:
+                if _is_relevant(p.get("displayName", {}).get("text", ""), department):
+                    relevant.append(p)
+                    seen_ids.add(p.get("id"))
+
+    nearby = _dedupe_and_convert(relevant, lat, lng, max_results=5)
 
     # Fallback to seed if API gave nothing
     if not nearby:
@@ -229,9 +272,26 @@ def search_facilities(lat: float, lng: float, department: str,
             key=lambda x: x["distance_km"] or 99
         )[:5]
 
-    gipsa = search_gipsa(lat, lng, max_results=8)
+    # GIPSA: same relevance filter — don't show an eye clinic for leg pain
+    # Two passes:
+    #   1. Department-keyword search (e.g. "ortho" for Orthopedics)
+    #   2. If fewer than 3 remain, fall back to all GIPSA in city
+    #      but still drop obvious mismatches via _is_relevant
+    dept_kw = _DEPT_QUERIES.get(department, "").split()[0]   # first word e.g. "orthopedic"
+    gipsa_specific = search_gipsa(lat, lng, keyword=dept_kw, max_results=8)
 
-    return {"nearby": nearby, "gipsa": gipsa}
+    if len(gipsa_specific) < 3:
+        # Add multi-specialty hospitals (no exclusion keyword in name)
+        all_gipsa = search_gipsa(lat, lng, keyword=None, max_results=20)
+        seen_names = {h["name"] for h in gipsa_specific}
+        for h in all_gipsa:
+            if h["name"] not in seen_names and _is_relevant(h["name"], department):
+                gipsa_specific.append(h)
+                seen_names.add(h["name"])
+            if len(gipsa_specific) >= 8:
+                break
+
+    return {"nearby": nearby, "gipsa": gipsa_specific}
 
 
 def get_emergency_hospitals(lat: float, lng: float) -> list:

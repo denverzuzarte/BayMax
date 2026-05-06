@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="theme-color" content="#0a84ff">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>BayMax</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .screen { display: none; }
+    .screen.active { display: flex; }
+    .bubble-user { background: #0a84ff; color: white; border-radius: 18px 18px 4px 18px; }
+    .bubble-bot  { background: white; color: #1c1c1e; border-radius: 18px 18px 18px 4px;
+                   box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+    .dot-very_busy { background: #ff3b30; }
+    .dot-busy      { background: #ff9500; }
+    .dot-moderate  { background: #ffcc00; }
+    .dot-quiet     { background: #34c759; }
+    #voice-btn { transition: transform 0.1s, box-shadow 0.1s; }
+    #voice-btn.recording  { background: #ff3b30 !important; transform: scale(1.08);
+                            box-shadow: 0 0 0 12px rgba(255,59,48,0.2); }
+    #voice-btn.processing { background: #8e8e93 !important; }
+    .card { animation: slideUp 0.3s ease; }
+    @keyframes slideUp { from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)} }
+    .lang-btn.active { background: #0a84ff; color: white; }
+    #emergency-overlay { display: none; }
+    #emergency-overlay.open { display: flex; }
+    #map-modal { display: none; position: fixed; inset: 0; z-index: 60;
+                 flex-direction: column; background: white; }
+    #map-modal.open { display: flex; }
+    #map-container { flex: 1; position: relative; }
+    #map-pin { position: absolute; top: 50%; left: 50%;
+               transform: translate(-50%, -100%);
+               z-index: 1000; pointer-events: none;
+               font-size: 2.5rem; line-height: 1; }
+  </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen">
+
+<!-- ═══════════════════════════════════════════
+     SCREEN 1 — ONBOARDING
+════════════════════════════════════════════ -->
+<div id="screen-onboarding" class="screen active flex-col min-h-screen">
+  <div class="bg-white px-5 pt-12 pb-6 text-center border-b border-gray-100">
+    <div class="w-20 h-20 mx-auto mb-3 rounded-full bg-blue-50 flex items-center justify-center">
+      <svg viewBox="0 0 80 80" class="w-16 h-16">
+        <ellipse cx="40" cy="44" rx="32" ry="30" fill="white" stroke="#e5e7eb" stroke-width="2"/>
+        <rect x="18" y="14" width="44" height="10" rx="5" fill="#0a84ff"/>
+        <circle cx="28" cy="44" r="6" fill="#1c1c1e"/>
+        <circle cx="52" cy="44" r="6" fill="#1c1c1e"/>
+        <circle cx="30" cy="42" r="2" fill="white"/>
+        <circle cx="54" cy="42" r="2" fill="white"/>
+      </svg>
+    </div>
+    <h1 class="text-2xl font-bold text-gray-900">Hi, I am Baymax</h1>
+    <p class="text-gray-500 text-sm mt-1">Your personal healthcare companion</p>
+  </div>
+
+  <div class="flex-1 overflow-y-auto px-5 py-5 space-y-4 max-w-lg mx-auto w-full">
+    <div>
+      <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Your Name *</label>
+      <input id="ob-name" type="text" placeholder="Priya Sharma"
+        class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-base"/>
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Phone Number *</label>
+      <input id="ob-phone" type="tel" placeholder="9876543210"
+        class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-base"/>
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">City *</label>
+      <div class="flex gap-2">
+        <input id="ob-city" type="text" placeholder="Mumbai"
+          class="flex-1 px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-base"/>
+        <button onclick="openMapPicker()"
+          class="px-4 py-3 rounded-xl bg-blue-50 text-blue-600 font-medium text-sm whitespace-nowrap">
+          📍 Map
+        </button>
+      </div>
+      <p id="ob-location-status" class="text-xs text-gray-400 mt-1 hidden"></p>
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Age (optional)</label>
+      <input id="ob-age" type="number" placeholder="32"
+        class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-900 text-base"/>
+    </div>
+
+    <details class="bg-white rounded-xl border border-gray-200">
+      <summary class="px-4 py-3 text-sm font-medium text-gray-600 cursor-pointer select-none">
+        🏥 Insurance Details (optional)
+      </summary>
+      <div class="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
+        <input id="ob-ins-provider" type="text" placeholder="Star Health / HDFC ERGO / etc."
+          class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm"/>
+        <input id="ob-ins-plan" type="text" placeholder="Plan name (optional)"
+          class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm"/>
+        <input id="ob-pmjay" type="text" placeholder="PMJAY Beneficiary ID (optional)"
+          class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm"/>
+      </div>
+    </details>
+
+    <details class="bg-white rounded-xl border border-gray-200">
+      <summary class="px-4 py-3 text-sm font-medium text-gray-600 cursor-pointer select-none">
+        📋 Medical History (optional)
+      </summary>
+      <div class="px-4 pb-4 border-t border-gray-100 pt-3">
+        <textarea id="ob-history" rows="3"
+          placeholder="Known conditions, allergies, current medications..."
+          class="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm resize-none"></textarea>
+      </div>
+    </details>
+  </div>
+
+  <div class="max-w-lg mx-auto w-full px-5 pb-8 space-y-3">
+    <div class="bg-red-50 border border-red-100 rounded-xl px-4 py-2.5 flex items-center justify-between">
+      <span class="text-xs text-red-700 font-medium">Emergency?</span>
+      <div class="flex gap-4">
+        <a href="tel:112" class="text-xs font-bold text-red-600">112 Emergency</a>
+        <a href="tel:108" class="text-xs font-bold text-red-600">108 Ambulance</a>
+      </div>
+    </div>
+    <button onclick="startChat()"
+      class="w-full bg-blue-500 text-white font-semibold py-4 rounded-2xl text-base shadow-sm active:bg-blue-600 transition-colors">
+      Get Started
+    </button>
+    <p class="text-center text-xs text-gray-400">Your data stays on your device</p>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     SCREEN 2 — CHAT
+════════════════════════════════════════════ -->
+<div id="screen-chat" class="screen flex-col h-screen overflow-hidden">
+  <!-- Nav -->
+  <div class="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
+        <svg viewBox="0 0 40 40" class="w-6 h-6">
+          <ellipse cx="20" cy="22" rx="16" ry="15" fill="white" stroke="#e5e7eb" stroke-width="1.5"/>
+          <rect x="9" y="7" width="22" height="5" rx="2.5" fill="#0a84ff"/>
+          <circle cx="14" cy="22" r="3" fill="#1c1c1e"/>
+          <circle cx="26" cy="22" r="3" fill="#1c1c1e"/>
+        </svg>
+      </div>
+      <div>
+        <p class="font-semibold text-gray-900 text-sm">Baymax</p>
+        <p class="text-xs text-green-500" id="chat-status">Online</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="flex bg-gray-100 rounded-full p-0.5">
+        <button onclick="setLang('English')" id="lang-en"
+          class="lang-btn active text-xs px-2.5 py-1 rounded-full font-medium transition-all">EN</button>
+        <button onclick="setLang('Hindi')"   id="lang-hi"
+          class="lang-btn text-xs px-2.5 py-1 rounded-full font-medium transition-all">हिंदी</button>
+        <button onclick="setLang('Marathi')" id="lang-mr"
+          class="lang-btn text-xs px-2.5 py-1 rounded-full font-medium transition-all">मराठी</button>
+      </div>
+      <button onclick="openEmergency()"
+        class="bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-full">
+        🚨 SOS
+      </button>
+    </div>
+  </div>
+
+  <!-- Messages -->
+  <div id="messages" class="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-gray-50"></div>
+
+  <!-- Hospital cards -->
+  <div id="cards-area"
+    class="hidden shrink-0 max-h-64 overflow-y-auto border-t border-gray-100 bg-white px-4 py-3 space-y-2"></div>
+
+  <!-- Input area -->
+  <div class="bg-white border-t border-gray-100 px-4 pt-3 pb-6 shrink-0">
+    <div class="flex gap-2 mb-3">
+      <input id="text-input" type="text" placeholder="Type your symptoms..."
+        class="flex-1 bg-gray-100 rounded-full px-4 py-2.5 text-sm text-gray-900"
+        onkeydown="if(event.key==='Enter')sendText()"/>
+      <button onclick="sendText()"
+        class="bg-blue-500 text-white rounded-full w-10 h-10 flex items-center justify-center shrink-0 active:bg-blue-600">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14m-7-7l7 7-7 7"/>
+        </svg>
+      </button>
+    </div>
+    <div class="flex flex-col items-center">
+      <button id="voice-btn"
+        class="w-16 h-16 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-lg"
+        onmousedown="startVoice()" onmouseup="stopVoice()"
+        ontouchstart="startVoice(event)" ontouchend="stopVoice()">
+        <svg class="w-7 h-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 3a4 4 0 014 4v4a4 4 0 01-8 0V7a4 4 0 014-4z"/>
+        </svg>
+      </button>
+      <p id="voice-status" class="text-xs text-gray-400 mt-2">Hold to speak</p>
+      <div class="flex gap-4 mt-2">
+        <a href="tel:112" class="text-xs text-red-400 font-semibold">112 Emergency</a>
+        <a href="tel:108" class="text-xs text-red-400 font-semibold">108 Ambulance</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     EMERGENCY OVERLAY
+════════════════════════════════════════════ -->
+<div id="emergency-overlay" class="fixed inset-0 bg-white z-50 flex-col overflow-y-auto">
+  <div class="bg-red-500 text-white px-5 pt-12 pb-6">
+    <button onclick="closeEmergency()" class="text-white/80 text-sm mb-3 flex items-center gap-1">
+      ← Back
+    </button>
+    <h1 class="text-3xl font-bold">🚨 Emergency</h1>
+    <p class="text-red-100 text-sm mt-1">Tap any number to call immediately</p>
+  </div>
+  <div class="px-5 py-4 space-y-3" id="emergency-numbers">
+    <!-- static fallback always shown immediately -->
+    <a href="tel:112"
+       class="flex items-center justify-between bg-red-50 border border-red-100 rounded-2xl px-5 py-4">
+      <div>
+        <p class="font-bold text-red-700 text-2xl">112</p>
+        <p class="text-sm font-semibold text-gray-800">National Emergency</p>
+        <p class="text-xs text-gray-500">Police, Fire, Ambulance</p>
+      </div>
+      <span class="text-3xl">📞</span>
+    </a>
+    <a href="tel:108"
+       class="flex items-center justify-between bg-red-50 border border-red-100 rounded-2xl px-5 py-4">
+      <div>
+        <p class="font-bold text-red-700 text-2xl">108</p>
+        <p class="text-sm font-semibold text-gray-800">Ambulance</p>
+        <p class="text-xs text-gray-500">Free government ambulance</p>
+      </div>
+      <span class="text-3xl">🚑</span>
+    </a>
+    <a href="tel:9152987821"
+       class="flex items-center justify-between bg-orange-50 border border-orange-100 rounded-2xl px-5 py-4">
+      <div>
+        <p class="font-bold text-orange-700 text-xl">9152987821</p>
+        <p class="text-sm font-semibold text-gray-800">iCall — Mental Health</p>
+        <p class="text-xs text-gray-500">IITB — free counselling</p>
+      </div>
+      <span class="text-3xl">💙</span>
+    </a>
+  </div>
+  <div class="px-5 py-2 pb-8" id="emergency-nearest"></div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     MAP PICKER MODAL
+════════════════════════════════════════════ -->
+<div id="map-modal">
+  <!-- Header -->
+  <div class="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between shrink-0">
+    <button onclick="closeMapPicker()" class="text-gray-500 text-sm font-medium">Cancel</button>
+    <p class="font-semibold text-gray-900 text-sm">Set Your Location</p>
+    <button onclick="confirmMapLocation()"
+      class="bg-blue-500 text-white text-sm font-semibold px-4 py-1.5 rounded-full">
+      Confirm
+    </button>
+  </div>
+  <!-- Map -->
+  <div id="map-container">
+    <div id="map" style="width:100%;height:100%;"></div>
+    <div id="map-pin">📍</div>
+  </div>
+  <!-- Address label -->
+  <div class="bg-white border-t border-gray-100 px-4 py-3 shrink-0">
+    <p class="text-xs text-gray-400 mb-0.5">Selected location</p>
+    <p id="map-address" class="text-sm text-gray-800 font-medium">Move the map to your location</p>
+    <p id="map-coords" class="text-xs text-gray-400 mt-0.5"></p>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════
+     JAVASCRIPT
+════════════════════════════════════════════ -->
+<script>
+const API = "";   // same origin
+
+let sessionId    = localStorage.getItem("bm_sid") || crypto.randomUUID();
+let profile      = JSON.parse(localStorage.getItem("bm_profile") || "{}");
+let selectedLang = "English";
+let mediaRecorder, audioChunks = [];
+let isRecording  = false;
+let currentAudio = null;
+let chatStarted  = false;
+
+localStorage.setItem("bm_sid", sessionId);
+
+// ── Boot ──────────────────────────────────────────────────
+window.addEventListener("load", () => {
+  fetchEmergencyPanel();
+  if (profile.name) {
+    showScreen("chat");
+    bootChat();
+  } else {
+    showScreen("onboarding");
+  }
+});
+
+function showScreen(name) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById("screen-" + name).classList.add("active");
+}
+
+// ── Map picker ────────────────────────────────────────────
+let _map = null;
+let _mapLat = 19.0760, _mapLng = 72.8777;   // Mumbai default
+
+function openMapPicker() {
+  document.getElementById("map-modal").classList.add("open");
+  // Init Leaflet once
+  if (!_map) {
+    _map = L.map("map", { zoomControl: true, attributionControl: false });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(_map);
+    _map.on("moveend", _onMapMove);
+  }
+  // Centre on known location or browser location
+  const startLat = profile.lat || _mapLat;
+  const startLng = profile.lng || _mapLng;
+  _map.setView([startLat, startLng], 14);
+  setTimeout(() => _map.invalidateSize(), 150);
+
+  // Try to get browser location for a better start
+  if (!profile.lat) {
+    navigator.geolocation.getCurrentPosition(p => {
+      _mapLat = p.coords.latitude;
+      _mapLng = p.coords.longitude;
+      _map.setView([_mapLat, _mapLng], 15);
+    }, () => {});
+  }
+}
+
+async function _onMapMove() {
+  const c = _map.getCenter();
+  _mapLat = c.lat;
+  _mapLng = c.lng;
+  document.getElementById("map-coords").textContent =
+    `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${c.lat}&lon=${c.lng}&format=json`,
+      { headers: { "Accept-Language": "en" } }
+    );
+    const d = await r.json();
+    const addr = d.display_name || "Move map to your location";
+    document.getElementById("map-address").textContent = addr;
+    // Auto-fill city
+    const city = d.address?.city || d.address?.town || d.address?.county || "";
+    if (city) document.getElementById("ob-city").value = city;
+  } catch {
+    document.getElementById("map-address").textContent = `${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
+  }
+}
+
+function confirmMapLocation() {
+  profile.lat = _mapLat;
+  profile.lng = _mapLng;
+  const st = document.getElementById("ob-location-status");
+  st.textContent = `✓ Location set (${_mapLat.toFixed(4)}, ${_mapLng.toFixed(4)})`;
+  st.classList.remove("hidden");
+  closeMapPicker();
+}
+
+function closeMapPicker() {
+  document.getElementById("map-modal").classList.remove("open");
+}
+
+// ── Onboarding ───────────────────────────────────────────
+
+function startChat() {
+  const name  = document.getElementById("ob-name").value.trim();
+  const phone = document.getElementById("ob-phone").value.trim();
+  const city  = document.getElementById("ob-city").value.trim();
+  if (!name || !phone || !city) {
+    alert("Please fill in Name, Phone, and City.");
+    return;
+  }
+  profile = {
+    name, phone, city,
+    age:               document.getElementById("ob-age").value.trim() || null,
+    lat:               profile._lat || null,
+    lng:               profile._lng || null,
+    insurance_provider:document.getElementById("ob-ins-provider").value.trim() || null,
+    insurance_plan:    document.getElementById("ob-ins-plan").value.trim() || null,
+    pmjay_id:          document.getElementById("ob-pmjay").value.trim() || null,
+    medical_history:   document.getElementById("ob-history").value.trim() || null,
+  };
+  localStorage.setItem("bm_profile", JSON.stringify(profile));
+
+  fetch("/api/profile", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ session_id: sessionId, ...profile })
+  }).finally(() => { showScreen("chat"); bootChat(); });
+}
+
+// ── Chat boot ─────────────────────────────────────────────
+async function bootChat() {
+  if (chatStarted) return;
+  chatStarted = true;
+  // Send init message to trigger GREETING state
+  const res = await apiPost("/api/chat", { message: "hi", session_id: sessionId, user: profile });
+  appendBot(res.response);
+  speakText(res.response);
+}
+
+// ── Language ──────────────────────────────────────────────
+function setLang(lang) {
+  selectedLang = lang;
+  document.querySelectorAll(".lang-btn").forEach(b => b.classList.remove("active"));
+  const map = { English:"lang-en", Hindi:"lang-hi", Marathi:"lang-mr" };
+  if (map[lang]) document.getElementById(map[lang]).classList.add("active");
+}
+
+// ── Text send ─────────────────────────────────────────────
+async function sendText() {
+  const inp = document.getElementById("text-input");
+  const msg = inp.value.trim();
+  if (!msg) return;
+  inp.value = "";
+  appendUser(msg);
+  const res = await apiPost("/api/chat", {
+    message: msg, session_id: sessionId, language: selectedLang, user: profile
+  });
+  handleResponse(res);
+}
+
+// ── Voice ─────────────────────────────────────────────────
+async function startVoice(e) {
+  if (e) e.preventDefault();
+  if (isRecording) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks  = [];
+    mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    mediaRecorder.ondataavailable = ev => audioChunks.push(ev.data);
+    mediaRecorder.start();
+    isRecording = true;
+    document.getElementById("voice-btn").classList.add("recording");
+    document.getElementById("voice-status").textContent = "Listening… release to send";
+  } catch {
+    document.getElementById("voice-status").textContent = "Microphone access denied";
+  }
+}
+
+async function stopVoice() {
+  if (!isRecording || !mediaRecorder) return;
+  isRecording = false;
+  const btn = document.getElementById("voice-btn");
+  btn.classList.remove("recording");
+  btn.classList.add("processing");
+  setStatus("Processing…");
+
+  await new Promise(resolve => {
+    mediaRecorder.onstop = async () => {
+      const blob = new Blob(audioChunks, { type: "audio/webm" });
+      mediaRecorder.stream.getTracks().forEach(t => t.stop());
+
+      const fd = new FormData();
+      fd.append("audio",      blob, "rec.webm");
+      fd.append("session_id", sessionId);
+      fd.append("language",   selectedLang);
+
+      try {
+        const r   = await fetch("/api/voice", { method:"POST", body: fd });
+        const res = await r.json();
+        if (res.error) {
+          appendBot("Sorry, I couldn't catch that. Please try again or type.");
+        } else {
+          if (res.transcript) appendUser(res.transcript);
+          handleResponse(res);
+        }
+      } catch {
+        appendBot("Connection error — please try again.");
+      }
+      btn.classList.remove("processing");
+      setStatus("Hold to speak");
+      resolve();
+    };
+    mediaRecorder.stop();
+  });
+}
+
+// ── Response handler ──────────────────────────────────────
+function handleResponse(res) {
+  appendBot(res.response);
+
+  if (res.audio)            playHex(res.audio);
+  else if (res.response)    speakText(res.response);
+
+  if (res.emergency) {
+    showEmergencyOverlay(res.emergency_panel, res.facilities);
+    return;
+  }
+  if (res.state === "RESULTS") {
+    renderCards(res.facilities || [], res.pmjay, res.costs, res.routing);
+  }
+}
+
+// ── Bubbles ───────────────────────────────────────────────
+function appendUser(text) {
+  const msgs = document.getElementById("messages");
+  const d = document.createElement("div");
+  d.className = "flex justify-end";
+  d.innerHTML = `<div class="bubble-user max-w-xs px-4 py-2.5 text-sm">${x(text)}</div>`;
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function appendBot(text) {
+  hideTyping();
+  const msgs = document.getElementById("messages");
+  const d = document.createElement("div");
+  d.className = "flex items-end gap-2";
+  d.innerHTML = `
+    <div class="w-7 h-7 rounded-full bg-blue-50 shrink-0 flex items-center justify-center">
+      <svg viewBox="0 0 20 20" class="w-5 h-5">
+        <ellipse cx="10" cy="11" rx="8" ry="7" fill="white" stroke="#d1d5db" stroke-width="1"/>
+        <rect x="4.5" y="3.5" width="11" height="3" rx="1.5" fill="#0a84ff"/>
+        <circle cx="7" cy="11" r="1.8" fill="#1c1c1e"/>
+        <circle cx="13" cy="11" r="1.8" fill="#1c1c1e"/>
+      </svg>
+    </div>
+    <div class="bubble-bot max-w-xs px-4 py-2.5 text-sm leading-relaxed">${x(text)}</div>`;
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+let _typingEl = null;
+function showTyping() {
+  if (_typingEl) return;
+  const msgs = document.getElementById("messages");
+  _typingEl  = document.createElement("div");
+  _typingEl.className = "flex items-end gap-2";
+  _typingEl.innerHTML = `
+    <div class="w-7 h-7 rounded-full bg-blue-50 shrink-0"></div>
+    <div class="bubble-bot px-4 py-3 text-gray-300 text-lg tracking-widest">
+      <span class="inline-block animate-bounce" style="animation-delay:0ms">•</span>
+      <span class="inline-block animate-bounce" style="animation-delay:150ms">•</span>
+      <span class="inline-block animate-bounce" style="animation-delay:300ms">•</span>
+    </div>`;
+  msgs.appendChild(_typingEl);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+function hideTyping() {
+  if (_typingEl) { _typingEl.remove(); _typingEl = null; }
+}
+
+// ── Hospital cards ────────────────────────────────────────
+function renderCards(facilitiesObj, pmjay, costs, routing) {
+  const area = document.getElementById("cards-area");
+  area.innerHTML = "";
+  area.classList.remove("hidden");
+
+  // Handle both old list format and new {nearby, gipsa} dict
+  const nearby = Array.isArray(facilitiesObj)
+    ? facilitiesObj
+    : (facilitiesObj?.nearby || []);
+  const gipsa  = Array.isArray(facilitiesObj) ? [] : (facilitiesObj?.gipsa || []);
+
+  // Routing summary + cost bar
+  if (routing || costs) {
+    const bar = document.createElement("div");
+    bar.className = "flex items-center justify-between pb-1 border-b border-gray-100 mb-2";
+    bar.innerHTML = `
+      <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+        ${routing ? x(routing.department) + " · " + x(routing.urgency) : ""}
+      </span>
+      ${costs ? `<div class="text-right">
+        <p class="text-xs font-semibold text-blue-600">${x(costs.display)}</p>
+        <p class="text-xs text-gray-400">${x(costs.cghs_display)}</p>
+      </div>` : ""}`;
+    area.appendChild(bar);
+  }
+
+  // ── Nearby results (Google Places) ──
+  if (nearby.length) {
+    const hdr = document.createElement("p");
+    hdr.className = "text-xs font-semibold text-gray-400 uppercase tracking-wide mt-1 mb-1.5";
+    hdr.textContent = "Nearby";
+    area.appendChild(hdr);
+    nearby.slice(0,3).forEach(f => area.appendChild(_buildCard(f, pmjay)));
+  }
+
+  // ── GIPSA empanelled hospitals ──
+  if (gipsa.length) {
+    const hdr2 = document.createElement("p");
+    hdr2.className = "text-xs font-semibold text-gray-400 uppercase tracking-wide mt-3 mb-1.5";
+    hdr2.textContent = `GIPSA Empanelled — ${gipsa[0]?.city || ""}`;
+    area.appendChild(hdr2);
+    const note = document.createElement("p");
+    note.className = "text-xs text-gray-400 mb-2";
+    note.textContent = "Government-empanelled hospitals. Accepted by most PSU insurance schemes.";
+    area.appendChild(note);
+    gipsa.slice(0,5).forEach(f => area.appendChild(_buildGipsaCard(f)));
+  }
+
+  if (!nearby.length && !gipsa.length) {
+    area.innerHTML += `<p class="text-sm text-gray-400 py-3 text-center">No facilities found. Try moving your location pin closer to a city.</p>`;
+  }
+}
+
+function _buildCard(f, pmjay) {
+  const lvl     = f.wait_indicator?.level || "quiet";
+  const openTxt = f.open_now === true ? "Open" : f.open_now === false ? "Closed" : "";
+  const openCls = f.open_now === true ? "text-green-600" : "text-red-500";
+
+  const card = document.createElement("div");
+  card.className = "card bg-gray-50 rounded-2xl border border-gray-100 px-4 py-3 mb-2";
+  card.innerHTML = `
+    <div class="flex items-start justify-between gap-2 mb-1.5">
+      <div class="flex-1 min-w-0">
+        <p class="font-semibold text-gray-900 text-sm truncate">${x(f.name)}</p>
+        <p class="text-xs text-gray-400 truncate">${x(f.address)}</p>
+      </div>
+      <div class="flex gap-1 shrink-0">
+        ${f.gipsa ? '<span class="text-xs bg-blue-50 text-blue-600 border border-blue-100 px-1.5 py-0.5 rounded-full font-semibold">GIPSA</span>' : ""}
+        <span class="text-xs bg-white border border-gray-200 text-gray-500 px-1.5 py-0.5 rounded-full capitalize">${f.type}</span>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mb-2">
+      ${f.distance_km  ? `<span>📍 ${f.distance_km} km</span>` : ""}
+      ${f.rating       ? `<span>⭐ ${f.rating}</span>` : ""}
+      ${openTxt        ? `<span class="${openCls} font-medium">${openTxt}</span>` : ""}
+      <span class="flex items-center gap-1">
+        <span class="w-2 h-2 rounded-full dot-${lvl}"></span>
+        ${x(f.wait_indicator?.label || "")}
+      </span>
+    </div>
+    <div class="flex items-center justify-between">
+      <div class="flex flex-wrap gap-1.5">
+        ${pmjay?.badge ? `<span class="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-semibold">${x(pmjay.badge)}</span>` : ""}
+        ${pmjay?.warning ? `<span class="bg-orange-100 text-orange-600 text-xs px-2 py-0.5 rounded-full">${x(pmjay.warning)}</span>` : ""}
+      </div>
+      ${f.phone ? `<a href="tel:${f.phone}" class="bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-full shrink-0">📞 Call</a>` : ""}
+    </div>`;
+  return card;
+}
+
+function _buildGipsaCard(f) {
+  const card = document.createElement("div");
+  card.className = "card bg-blue-50 rounded-xl border border-blue-100 px-4 py-2.5 mb-1.5 flex items-start justify-between gap-2";
+  card.innerHTML = `
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-1.5 flex-wrap">
+        <p class="font-medium text-sm text-gray-900 truncate">${x(f.name)}</p>
+        <span class="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold shrink-0">GIPSA ✓</span>
+      </div>
+      <p class="text-xs text-gray-500 truncate mt-0.5">${x(f.address)}</p>
+      <p class="text-xs text-gray-400">${x(f.city)}</p>
+    </div>`;
+  return card;
+}
+
+// ── Audio ─────────────────────────────────────────────────
+function playHex(hex) {
+  if (!hex) return;
+  stopCurrentAudio();
+  try {
+    const bytes = new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b,16)));
+    const blob  = new Blob([bytes], { type: "audio/mpeg" });
+    const url   = URL.createObjectURL(blob);
+    currentAudio = new Audio(url);
+    currentAudio.play().catch(() => {});
+    currentAudio.onended = () => URL.revokeObjectURL(url);
+  } catch {}
+}
+
+async function speakText(text) {
+  if (!text) return;
+  try {
+    const r = await fetch("/api/tts", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ text })
+    });
+    const d = await r.json();
+    if (d.audio) playHex(d.audio);
+  } catch {}
+}
+
+function stopCurrentAudio() {
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+}
+
+// ── Emergency ─────────────────────────────────────────────
+async function fetchEmergencyPanel() {
+  try {
+    const params = profile.lat && profile.lng
+      ? `?lat=${profile.lat}&lng=${profile.lng}` : "";
+    const r = await fetch("/api/emergency" + params);
+    const d = await r.json();
+    if (d.panel) renderEmergencyNumbers(d.panel);
+    if (d.nearest?.length) renderNearestHospitals(d.nearest);
+  } catch {}
+}
+
+function renderEmergencyNumbers(panel) {
+  document.getElementById("emergency-numbers").innerHTML = panel.map(e => `
+    <a href="tel:${e.number}"
+       class="flex items-center justify-between bg-red-50 border border-red-100 rounded-2xl px-5 py-4 active:bg-red-100">
+      <div>
+        <p class="font-bold text-red-700 text-2xl">${e.number}</p>
+        <p class="text-sm font-semibold text-gray-800">${x(e.name)}</p>
+        <p class="text-xs text-gray-400">${x(e.notes)}</p>
+      </div>
+      <span class="text-3xl">📞</span>
+    </a>`).join("");
+}
+
+function renderNearestHospitals(nearest) {
+  document.getElementById("emergency-nearest").innerHTML = `
+    <h3 class="font-semibold text-gray-700 mb-3 text-sm">Nearest Emergency Hospitals</h3>
+    <div class="space-y-2">
+      ${nearest.slice(0,3).map(h => `
+        <div class="bg-gray-50 rounded-xl px-4 py-3 flex items-center justify-between">
+          <div>
+            <p class="font-medium text-sm text-gray-900">${x(h.name)}</p>
+            <p class="text-xs text-gray-400">${h.distance_km ?? "?"} km away</p>
+          </div>
+          ${h.phone ? `<a href="tel:${h.phone}" class="bg-green-500 text-white text-xs font-bold px-3 py-1.5 rounded-full">📞 Call</a>` : ""}
+        </div>`).join("")}
+    </div>`;
+}
+
+function openEmergency() {
+  document.getElementById("emergency-overlay").classList.add("open");
+  if (profile.lat && profile.lng) fetchEmergencyPanel();
+}
+
+function showEmergencyOverlay(panel, nearest) {
+  if (panel)   renderEmergencyNumbers(panel);
+  if (nearest) renderNearestHospitals(nearest);
+  openEmergency();
+}
+
+function closeEmergency() {
+  document.getElementById("emergency-overlay").classList.remove("open");
+}
+
+// ── Helpers ───────────────────────────────────────────────
+function x(s) {
+  if (!s) return "";
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+                  .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function setStatus(txt) {
+  document.getElementById("voice-status").textContent = txt;
+}
+
+async function apiPost(path, body) {
+  showTyping();
+  try {
+    const r = await fetch(path, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+    hideTyping();
+    return await r.json();
+  } catch {
+    hideTyping();
+    return { response: "Connection error — please try again.", state: "ERROR" };
+  }
+}
+</script>
+</body>
+</html>

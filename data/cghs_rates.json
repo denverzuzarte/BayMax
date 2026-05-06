@@ -1,0 +1,131 @@
+{
+  "note": "Cost estimates based on CGHS 2024 rate card and typical Mumbai private hospital rates",
+  "last_updated": "2025-05-06",
+  "departments": {
+    "General Medicine": {
+      "opd_consultation": {"min": 300, "max": 800},
+      "cghs_rate": 350,
+      "common_procedures": {
+        "Blood test (CBC)": {"min": 200, "max": 600, "cghs": 180},
+        "Urine test": {"min": 100, "max": 300, "cghs": 90}
+      }
+    },
+    "Cardiology": {
+      "opd_consultation": {"min": 800, "max": 2000},
+      "cghs_rate": 750,
+      "common_procedures": {
+        "ECG": {"min": 200, "max": 800, "cghs": 150},
+        "Echocardiogram": {"min": 2000, "max": 5000, "cghs": 1800},
+        "Stress Test": {"min": 2500, "max": 6000, "cghs": 2000}
+      }
+    },
+    "Neurology": {
+      "opd_consultation": {"min": 1000, "max": 2500},
+      "cghs_rate": 900,
+      "common_procedures": {
+        "EEG": {"min": 1500, "max": 4000, "cghs": 1200},
+        "MRI Brain": {"min": 5000, "max": 12000, "cghs": 4500}
+      }
+    },
+    "Orthopedics": {
+      "opd_consultation": {"min": 700, "max": 1800},
+      "cghs_rate": 650,
+      "common_procedures": {
+        "X-Ray": {"min": 300, "max": 800, "cghs": 200},
+        "MRI Joint": {"min": 4000, "max": 10000, "cghs": 3500},
+        "Physiotherapy session": {"min": 500, "max": 1500, "cghs": 400}
+      }
+    },
+    "Dermatology": {
+      "opd_consultation": {"min": 500, "max": 1500},
+      "cghs_rate": 450,
+      "common_procedures": {
+        "Skin biopsy": {"min": 1500, "max": 4000, "cghs": 1200},
+        "Patch test": {"min": 800, "max": 2000, "cghs": 600}
+      }
+    },
+    "ENT": {
+      "opd_consultation": {"min": 500, "max": 1500},
+      "cghs_rate": 450,
+      "common_procedures": {
+        "Audiometry": {"min": 500, "max": 1500, "cghs": 400},
+        "Endoscopy (nasal)": {"min": 1000, "max": 3000, "cghs": 800}
+      }
+    },
+    "Ophthalmology": {
+      "opd_consultation": {"min": 400, "max": 1200},
+      "cghs_rate": 400,
+      "common_procedures": {
+        "Eye pressure test": {"min": 200, "max": 600, "cghs": 150},
+        "Retinal scan": {"min": 1000, "max": 3000, "cghs": 800}
+      }
+    },
+    "Pulmonology": {
+      "opd_consultation": {"min": 700, "max": 1800},
+      "cghs_rate": 650,
+      "common_procedures": {
+        "Spirometry": {"min": 500, "max": 1500, "cghs": 400},
+        "Chest X-Ray": {"min": 300, "max": 800, "cghs": 200}
+      }
+    },
+    "Endocrinology": {
+      "opd_consultation": {"min": 800, "max": 2000},
+      "cghs_rate": 750,
+      "common_procedures": {
+        "HbA1c test": {"min": 400, "max": 900, "cghs": 300},
+        "Thyroid profile": {"min": 500, "max": 1200, "cghs": 400},
+        "Fasting blood sugar": {"min": 100, "max": 300, "cghs": 80}
+      }
+    },
+    "Gastroenterology": {
+      "opd_consultation": {"min": 800, "max": 2000},
+      "cghs_rate": 750,
+      "common_procedures": {
+        "Endoscopy": {"min": 3000, "max": 8000, "cghs": 2500},
+        "Ultrasound abdomen": {"min": 800, "max": 2500, "cghs": 600},
+        "Liver function test": {"min": 500, "max": 1200, "cghs": 400}
+      }
+    },
+    "Urology": {
+      "opd_consultation": {"min": 700, "max": 1800},
+      "cghs_rate": 650,
+      "common_procedures": {
+        "Urine culture": {"min": 400, "max": 900, "cghs": 300},
+        "Kidney ultrasound": {"min": 800, "max": 2000, "cghs": 600}
+      }
+    },
+    "Gynecology": {
+      "opd_consultation": {"min": 500, "max": 1500},
+      "cghs_rate": 500,
+      "common_procedures": {
+        "Ultrasound (obstetric)": {"min": 800, "max": 2500, "cghs": 600},
+        "Pap smear": {"min": 500, "max": 1500, "cghs": 400}
+      }
+    },
+    "Psychiatry": {
+      "opd_consultation": {"min": 800, "max": 2500},
+      "cghs_rate": 700,
+      "common_procedures": {
+        "Psychotherapy session": {"min": 1000, "max": 3000, "cghs": 800}
+      }
+    },
+    "Pediatrics": {
+      "opd_consultation": {"min": 400, "max": 1200},
+      "cghs_rate": 400,
+      "common_procedures": {
+        "Vaccination": {"min": 200, "max": 2000, "cghs": 150},
+        "Blood test": {"min": 200, "max": 600, "cghs": 180}
+      }
+    },
+    "Dentistry": {
+      "opd_consultation": {"min": 300, "max": 800},
+      "cghs_rate": 300,
+      "common_procedures": {
+        "X-Ray (dental)": {"min": 200, "max": 500, "cghs": 150},
+        "Extraction": {"min": 500, "max": 2000, "cghs": 400},
+        "Root canal": {"min": 3000, "max": 8000, "cghs": 2500},
+        "Cleaning": {"min": 500, "max": 1500, "cghs": 400}
+      }
+    }
+  }
+}

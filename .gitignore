@@ -1,0 +1,11 @@
+tests/
+*.env
+.env
+__pycache__/
+*.pyc
+*.pyo
+hospital_index.faiss
+hospital_data.pkl
+node_modules/
+.DS_Store
+*.log

@@ -1,0 +1,7 @@
+[
+  {"name": "National Emergency",    "number": "112",           "notes": "Police, Fire, Ambulance"},
+  {"name": "Ambulance",             "number": "108",           "notes": "Free government ambulance"},
+  {"name": "iCall",                 "number": "9152987821",    "notes": "Mental health — IITB"},
+  {"name": "Vandrevala Foundation", "number": "1860-2662-345", "notes": "24/7 mental health"},
+  {"name": "NIMHANS",               "number": "080-46110007",  "notes": "Psychiatric emergencies"}
+]

@@ -1,0 +1,103 @@
+{
+  "lookup_by": "phone",
+  "last_updated": "2025-05-06",
+  "note": "Mock data — replace with NHA PMJAY API call at api.pmjay.gov.in/v1/beneficiary when credentials approved",
+
+  "beneficiaries": {
+    "9152987821": {
+      "eligible": true,
+      "beneficiary_name": "Priya Sharma",
+      "pmjay_id": "PMJAY-MH-2024-00112",
+      "scheme": "PMJAY",
+      "scheme_full_name": "Pradhan Mantri Jan Arogya Yojana",
+      "family_coverage_inr": 500000,
+      "used_inr": 0,
+      "remaining_inr": 500000,
+      "state": "Maharashtra",
+      "enrollment_date": "2023-04-15",
+      "valid_until": "2026-03-31",
+      "family_size": 4,
+      "card_status": "ACTIVE"
+    },
+
+    "9876543210": {
+      "eligible": true,
+      "beneficiary_name": "Rajesh Kumar",
+      "pmjay_id": "MJPJAY-MH-2024-00287",
+      "scheme": "State Scheme",
+      "scheme_full_name": "Mahatma Jyotiba Phule Jan Arogya Yojana",
+      "family_coverage_inr": 200000,
+      "used_inr": 45000,
+      "remaining_inr": 155000,
+      "state": "Maharashtra",
+      "enrollment_date": "2022-11-01",
+      "valid_until": "2026-03-31",
+      "family_size": 3,
+      "card_status": "ACTIVE"
+    },
+
+    "9000000001": {
+      "eligible": true,
+      "beneficiary_name": "Sunita Devi",
+      "pmjay_id": "PMJAY-DL-2024-00934",
+      "scheme": "PMJAY",
+      "scheme_full_name": "Pradhan Mantri Jan Arogya Yojana",
+      "family_coverage_inr": 500000,
+      "used_inr": 120000,
+      "remaining_inr": 380000,
+      "state": "Delhi",
+      "enrollment_date": "2021-08-20",
+      "valid_until": "2026-03-31",
+      "family_size": 5,
+      "card_status": "ACTIVE"
+    },
+
+    "9000000002": {
+      "eligible": true,
+      "beneficiary_name": "Amit Patel",
+      "pmjay_id": "PMJAY-GJ-2024-01156",
+      "scheme": "PMJAY",
+      "scheme_full_name": "Pradhan Mantri Jan Arogya Yojana",
+      "family_coverage_inr": 500000,
+      "used_inr": 500000,
+      "remaining_inr": 0,
+      "state": "Gujarat",
+      "enrollment_date": "2020-06-10",
+      "valid_until": "2026-03-31",
+      "family_size": 2,
+      "card_status": "LIMIT_REACHED"
+    },
+
+    "9000000003": {
+      "eligible": false,
+      "beneficiary_name": null,
+      "pmjay_id": null,
+      "scheme": null,
+      "scheme_full_name": null,
+      "family_coverage_inr": null,
+      "used_inr": null,
+      "remaining_inr": null,
+      "state": null,
+      "enrollment_date": null,
+      "valid_until": null,
+      "family_size": null,
+      "card_status": "NOT_ENROLLED"
+    }
+  },
+
+  "NOT_FOUND": {
+    "eligible": false,
+    "beneficiary_name": null,
+    "pmjay_id": null,
+    "scheme": null,
+    "scheme_full_name": null,
+    "family_coverage_inr": null,
+    "used_inr": null,
+    "remaining_inr": null,
+    "state": null,
+    "enrollment_date": null,
+    "valid_until": null,
+    "family_size": null,
+    "card_status": "NOT_FOUND"
+  }
+}

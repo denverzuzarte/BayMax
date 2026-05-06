@@ -1,0 +1,47 @@
+{
+  "9152987821": {
+    "eligible": true,
+    "pmjay_id": "PMJAY-MH-001234",
+    "scheme": "PMJAY",
+    "family_coverage_inr": 500000,
+    "remaining_inr": 500000,
+    "card_status": "ACTIVE",
+    "beneficiary_name": "Rahul Sharma"
+  },
+  "9876543210": {
+    "eligible": true,
+    "pmjay_id": "MAHATMA-MH-005678",
+    "scheme": "State Scheme",
+    "family_coverage_inr": 200000,
+    "remaining_inr": 155000,
+    "card_status": "ACTIVE",
+    "beneficiary_name": "Sunita Patil"
+  },
+  "9000000002": {
+    "eligible": true,
+    "pmjay_id": "PMJAY-MH-009999",
+    "scheme": "PMJAY",
+    "family_coverage_inr": 500000,
+    "remaining_inr": 0,
+    "card_status": "LIMIT_REACHED",
+    "beneficiary_name": "Anil Kumar"
+  },
+  "9000000003": {
+    "eligible": false,
+    "pmjay_id": null,
+    "scheme": null,
+    "family_coverage_inr": null,
+    "remaining_inr": null,
+    "card_status": "NOT_ENROLLED",
+    "beneficiary_name": null
+  },
+  "NOT_FOUND": {
+    "eligible": false,
+    "pmjay_id": null,
+    "scheme": null,
+    "family_coverage_inr": null,
+    "remaining_inr": null,
+    "card_status": "NOT_FOUND",
+    "beneficiary_name": null
+  }
+}
